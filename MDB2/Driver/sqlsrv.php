@@ -335,7 +335,8 @@ class MDB2_Driver_sqlsrv extends MDB2_Driver_Common
             $host .= ','.$this->dsn['port'];
         }
 
-        $connection = @sqlsrv_connect($host, $params);
+        $params['CharacterSet'] = 'UTF-8';
+        $connection = sqlsrv_connect($host, $params);
         if (!$connection) {
             return $this->raiseError(MDB2_ERROR_CONNECT_FAILED, null, null,
                 'unable to establish a connection', __FUNCTION__, __FUNCTION__);
