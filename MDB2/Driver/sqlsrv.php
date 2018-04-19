@@ -325,7 +325,7 @@ class MDB2_Driver_sqlsrv extends MDB2_Driver_Common
         $host = $this->dsn['hostspec'] ? $this->dsn['hostspec'] : '.\\SQLEXPRESS';
         $params = array(
             'UID' => $username ? $username : null,
-            'PWD' => $password ? $password : null,
+            'pwd' => $password ? $password : null,
         );
         if ($database) {
             $params['Database'] = $database;
