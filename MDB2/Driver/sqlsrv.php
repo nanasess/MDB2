@@ -787,7 +787,8 @@ class MDB2_Result_sqlsrv extends MDB2_Result_Common
                 }
                 foreach ($row as $k => $v) {
                     if (is_object($v) && method_exists($v, 'format')) {
-                        //DateTime Object
+                        //DateTime Object FIXME
+                        $v->setTimezone(new DateTimeZone('Asia/Tokyo'));//TS_ISO_8601 with a trailing 'Z' is GMT
                         $row[$k] = $v->format('Y-m-d H:i:s');
                     }
                 }
@@ -1040,7 +1041,7 @@ class MDB2_Result_sqlsrv extends MDB2_Result_Common
                     }
                     foreach ($row as $k => $v) {
                         if (is_object($v) && method_exists($v, 'format')) {//DateTime Object
-                            //$v->setTimezone(new DateTimeZone('GMT'));//TS_ISO_8601 with a trailing 'Z' is GMT
+                            $v->setTimezone(new DateTimeZone('Asia/Tokyo'));//TS_ISO_8601 with a trailing 'Z' is GMT
                             $row[$k] = $v->format("Y-m-d H:i:s");
                         }
                     }
