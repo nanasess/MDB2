@@ -16,9 +16,12 @@
     "ext-mbstring": "*",
     "pear/pear-core-minimal": "^1.9.0"
   },
-    "autoload": {
-        "classmap": [
-            ""
-        ]
-  }
+  "autoload": {
+      "psr-0": {
+          "MDB2": ""
+      }
+  },
+  "include-path": [
+      "./"
+  ]
 }
