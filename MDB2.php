@@ -1338,6 +1338,13 @@ class MDB2_Driver_Common
     protected $modules = array();
 
     /**
+     * array of loaded version modules instances
+     * @var     array
+     * @access  protected
+     */
+    protected $loaded_version_modules = array();
+
+    /**
      * determines of the PHP4 destructor emulation has been enabled yet
      * @var     array
      * @access  protected
