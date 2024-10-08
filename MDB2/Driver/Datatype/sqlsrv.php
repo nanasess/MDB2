@@ -311,6 +311,24 @@ class MDB2_Driver_Datatype_sqlsrv extends MDB2_Driver_Datatype_Common
         return $name.' '.$this->getTypeDeclaration($field).$notnull;
     }
 
+    function _quoteText($value, $quote, $escape_wildcards)
+    {
+        if (!$quote) {
+            return $value;
+        }
+
+        $db = $this->getDBInstance();
+        if (MDB2::isError($db)) {
+            return $db;
+        }
+
+        $value = $db->escape($value, $escape_wildcards);
+        if (MDB2::isError($value)) {
+            return $value;
+        }
+        return "N'".$value."'";
+    }
+
     // }}}
     // {{{ _quoteBLOB()
 
