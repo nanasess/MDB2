@@ -120,6 +120,8 @@ class ReverseTest extends TestCase
             'first column' => array('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL PRIMARY KEY, name TEXT)', 'id'),
             'second column' => array('CREATE TABLE mdb2_inline_test (price DECIMAL(10,2), code VARCHAR(10) PRIMARY KEY)', 'code'),
             'quoted' => array('CREATE TABLE mdb2_inline_test ("id" INTEGER PRIMARY KEY, "name" TEXT)', 'id'),
+            'literal in default' => array("CREATE TABLE mdb2_inline_test (note VARCHAR(20) DEFAULT 'PRIMARY KEY', id INTEGER PRIMARY KEY)", 'id'),
+            'literal in default with table constraint' => array("CREATE TABLE mdb2_inline_test (note VARCHAR(20) DEFAULT 'it''s PRIMARY KEY (note)', id INTEGER NOT NULL, PRIMARY KEY (id))", 'id'),
         );
     }
 

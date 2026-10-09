@@ -406,8 +406,10 @@ class MDB2_Driver_Reverse_sqlite3 extends MDB2_Driver_Reverse_Common
                 return $sql;
             }
             if ($constraint_name == 'primary') {
+                // ignore string literals such as DEFAULT 'PRIMARY KEY'
+                $sql_without_literals = preg_replace("/'(?:[^']|'')*'/", "''", $sql);
                 // search in table definition for PRIMARY KEYs
-                if (preg_match("/\bPRIMARY\s+KEY\b\s*\(([^)]+)/i", $sql, $tmp)) {
+                if (preg_match("/\bPRIMARY\s+KEY\b\s*\(([^)]+)/i", $sql_without_literals, $tmp)) {
                     $definition['primary'] = true;
                     $definition['fields'] = array();
                     $column_names = explode(',', $tmp[1]);
@@ -419,7 +421,7 @@ class MDB2_Driver_Reverse_sqlite3 extends MDB2_Driver_Reverse_Common
                     }
                     return $definition;
                 }
-                if (preg_match("/[(,]\s*\"?([^\s\",()]+)\"?\s[^,]*?\bPRIMARY\s+KEY\b/i", $sql, $tmp)) {
+                if (preg_match("/[(,]\s*\"?([^\s\",()]+)\"?\s[^,]*?\bPRIMARY\s+KEY\b/i", $sql_without_literals, $tmp)) {
                     $definition['primary'] = true;
                     $definition['fields'] = array();
                     $column_names = explode(',', $tmp[1]);

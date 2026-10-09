@@ -1847,7 +1847,14 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     }
                     while (!@feof($value)) {
                         $data = @fread($value, $this->db->options['lob_buffer_length']);
-                        $this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data);
+                        if (!$this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data)) {
+                            if ($close) {
+                                @fclose($value);
+                            }
+                            $err = $this->db->raiseError(null, null, null,
+                                'Unable to send LOB data', __FUNCTION__);
+                            return $err;
+                        }
                     }
                     if ($close) {
                         @fclose($value);
@@ -1881,8 +1888,12 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                 return $affected_rows;
             }
 
-            if ($this->db->options['result_buffering']) {
-                $this->db->_mysqli('mysqli_stmt_store_result', $this->statement);
+            if ($this->db->options['result_buffering']
+                && !$this->db->_mysqli('mysqli_stmt_store_result', $this->statement)
+            ) {
+                $err = $this->db->raiseError(null, null, null,
+                    'Could not store the result', __FUNCTION__);
+                return $err;
             }
 
             $result = $this->db->_wrapResult($this->statement, $this->result_types,
