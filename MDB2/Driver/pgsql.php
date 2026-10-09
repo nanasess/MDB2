@@ -115,7 +115,7 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         $error_code = MDB2_ERROR;
 
         $native_msg = '';
-        if (is_resource($error)) {
+        if ($this->isResult($error)) {
             $native_msg = @pg_result_error($error);
         } elseif ($this->connection) {
             $native_msg = @pg_last_error($this->connection);
@@ -1159,6 +1159,18 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         return is_resource($connection)
             || (class_exists('PgSql\Connection') && $connection instanceof \PgSql\Connection);
     }
+
+    /**
+     * Check whether the value is a PostgreSQL query result.
+     *
+     * @param mixed $result result handle
+     * @return bool
+     */
+    function isResult($result)
+    {
+        return is_resource($result)
+            || (class_exists('PgSql\Result') && $result instanceof \PgSql\Result);
+    }
 }
 
 /**
@@ -1340,7 +1352,7 @@ class MDB2_Result_pgsql extends MDB2_Result_Common
      */
     function free()
     {
-        if (is_resource($this->result) && $this->db->connection) {
+        if ($this->db->isResult($this->result) && $this->db->connection) {
             $free = @pg_free_result($this->result);
             if (false === $free) {
                 return $this->db->raiseError(null, null, null,
