@@ -325,7 +325,7 @@ class MDB2_Driver_sqlsrv extends MDB2_Driver_Common
         $host = $this->dsn['hostspec'] ? $this->dsn['hostspec'] : '.\\SQLEXPRESS';
         $params = array(
             'UID' => $username ? $username : null,
-            'PWD' => $password ? $password : null,
+            'pwd' => $password ? $password : null,
         );
         if ($database) {
             $params['Database'] = $database;
@@ -335,7 +335,8 @@ class MDB2_Driver_sqlsrv extends MDB2_Driver_Common
             $host .= ','.$this->dsn['port'];
         }
 
-        $connection = @sqlsrv_connect($host, $params);
+        $params['CharacterSet'] = 'UTF-8';
+        $connection = sqlsrv_connect($host, $params);
         if (!$connection) {
             return $this->raiseError(MDB2_ERROR_CONNECT_FAILED, null, null,
                 'unable to establish a connection', __FUNCTION__, __FUNCTION__);
@@ -786,7 +787,8 @@ class MDB2_Result_sqlsrv extends MDB2_Result_Common
                 }
                 foreach ($row as $k => $v) {
                     if (is_object($v) && method_exists($v, 'format')) {
-                        //DateTime Object
+                        //DateTime Object FIXME
+                        $v->setTimezone(new DateTimeZone('Asia/Tokyo'));//TS_ISO_8601 with a trailing 'Z' is GMT
                         $row[$k] = $v->format('Y-m-d H:i:s');
                     }
                 }
@@ -1039,7 +1041,7 @@ class MDB2_Result_sqlsrv extends MDB2_Result_Common
                     }
                     foreach ($row as $k => $v) {
                         if (is_object($v) && method_exists($v, 'format')) {//DateTime Object
-                            //$v->setTimezone(new DateTimeZone('GMT'));//TS_ISO_8601 with a trailing 'Z' is GMT
+                            $v->setTimezone(new DateTimeZone('Asia/Tokyo'));//TS_ISO_8601 with a trailing 'Z' is GMT
                             $row[$k] = $v->format("Y-m-d H:i:s");
                         }
                     }
