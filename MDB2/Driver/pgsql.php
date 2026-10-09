@@ -214,7 +214,7 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         if (MDB2::isError($connection)) {
             return $connection;
         }
-        if (is_resource($connection) && version_compare(PHP_VERSION, '5.2.0RC5', '>=')) {
+        if ($this->isConnection($connection) && version_compare(PHP_VERSION, '5.2.0RC5', '>=')){
             $text = @pg_escape_string($connection, $text);
         } else {
             $text = @pg_escape_string($text);
@@ -494,7 +494,7 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function connect()
     {
-        if (is_resource($this->connection)) {
+        if ($this->isConnection($this->connection)) {
             //if (count(array_diff($this->connected_dsn, $this->dsn)) == 0
             if (MDB2::areEquals($this->connected_dsn, $this->dsn)
                 && $this->connected_database_name == $this->database_name
@@ -593,7 +593,7 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function disconnect($force = true)
     {
-        if (is_resource($this->connection)) {
+        if ($this->isConnection($this->connection)) {
             if ($this->in_transaction) {
                 $dsn = $this->dsn;
                 $database_name = $this->database_name;
@@ -1146,6 +1146,18 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     {
         $sequence_name = $this->quoteIdentifier($this->getSequenceName($seq_name), true);
         return $this->queryOne("SELECT last_value FROM $sequence_name", 'integer');
+    }
+
+    /**
+     * Check whether the value is a PostgreSQL connection.
+     *
+     * @param mixed $connection connection handle
+     * @return bool
+     */
+    function isConnection($connection)
+    {
+        return is_resource($connection)
+            || (class_exists('PgSql\Connection') && $connection instanceof \PgSql\Connection);
     }
 }
 
