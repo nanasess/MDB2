@@ -202,7 +202,7 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
     protected function knownSqliteErrorMappingBug($php8_only = false)
     {
         $this->knownBug(
-            'sqlite3 driver does not map native errors to MDB2 error codes',
+            'sqlite3 driver does not map native errors to MDB2 error codes (#9)',
             $this->db->phptype === 'sqlite3' && (!$php8_only || PHP_VERSION_ID >= 80000)
         );
     }
@@ -215,7 +215,7 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
     protected function knownMysqliExceptionBug()
     {
         $this->knownBug(
-            'mysqli driver throws mysqli_sql_exception on PHP 8.1+ instead of returning an MDB2 error',
+            'mysqli driver throws mysqli_sql_exception on PHP 8.1+ instead of returning an MDB2 error (#10)',
             $this->db->phptype === 'mysqli' && PHP_VERSION_ID >= 80100
         );
     }

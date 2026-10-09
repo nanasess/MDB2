@@ -72,7 +72,7 @@ class ManagerTest extends TestCase
     {
         // sqlite3 re-creates the table from the reversed definition
         $this->knownBug(
-            'sqlite3 alterTable() re-creates DECIMAL(p,s) columns as DECIMAL(p,s,s)',
+            'sqlite3 alterTable() re-creates DECIMAL(p,s) columns as DECIMAL(p,s,s) (#14)',
             $this->db->phptype === 'sqlite3'
         );
         $this->createTestTable();

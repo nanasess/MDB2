@@ -82,7 +82,7 @@ class ReverseTest extends TestCase
     public function testSqliteInlineUniqueColumn()
     {
         $this->requireDriver('sqlite3');
-        $this->knownBug('sqlite3 reverse module drops columns declared with an inline UNIQUE constraint');
+        $this->knownBug('sqlite3 reverse module drops columns declared with an inline UNIQUE constraint (#12)');
         $this->assertNotError($this->db->exec('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL, code VARCHAR(10) UNIQUE)'));
         $this->assertSame(array('id', 'code'), $this->db->manager->listTableFields('mdb2_inline_test'));
     }
@@ -90,7 +90,7 @@ class ReverseTest extends TestCase
     public function testSqliteTableInfoWithInlinePrimaryKey()
     {
         $this->requireDriver('sqlite3');
-        $this->knownBug('sqlite3 tableInfo() fails on tables with an inline PRIMARY KEY');
+        $this->knownBug('sqlite3 tableInfo() fails on tables with an inline PRIMARY KEY (#13)');
         $this->assertNotError($this->db->exec('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL PRIMARY KEY, name TEXT)'));
         $this->assertNotError($this->db->reverse->tableInfo('mdb2_inline_test'));
     }
@@ -126,7 +126,7 @@ class ReverseTest extends TestCase
         }
         $version = $this->assertNotError($this->db->getServerVersion());
         $this->knownBug(
-            'pgsql getTableConstraintDefinition() refers to pg_constraint.consrc removed in PostgreSQL 12',
+            'pgsql getTableConstraintDefinition() refers to pg_constraint.consrc removed in PostgreSQL 12 (#11)',
             (int) $version['major'] >= 12
         );
     }
