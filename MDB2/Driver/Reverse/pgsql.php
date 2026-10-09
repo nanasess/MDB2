@@ -295,7 +295,7 @@ class MDB2_Driver_Reverse_pgsql extends MDB2_Driver_Reverse_Common
                            WHEN 'p' THEN 'PARTIAL'
                          END AS match,
                          --array_to_string(c.confkey, ' ') AS fk_constraint_key,
-                         consrc
+                         pg_get_constraintdef(c.oid) AS consrc
                     FROM pg_constraint c
                LEFT JOIN pg_class t  ON c.conrelid  = t.oid
                LEFT JOIN pg_class t2 ON c.confrelid = t2.oid

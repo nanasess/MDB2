@@ -12,7 +12,6 @@ class ReverseTest extends TestCase
 
     public function testTableInfoByTableName()
     {
-        $this->knownPgsqlConsrcBug();
         $info = $this->assertNotError($this->db->reverse->tableInfo('mdb2_users'));
         $this->assertSame(array_keys(self::$types), array_column($info, 'name'));
         foreach ($info as $column) {
@@ -79,20 +78,51 @@ class ReverseTest extends TestCase
         $this->assertSame('10,2', (string) $definition[0]['length']);
     }
 
+    /**
+     * Columns with an inline UNIQUE constraint were dropped (#12).
+     */
     public function testSqliteInlineUniqueColumn()
     {
         $this->requireDriver('sqlite3');
-        $this->knownBug('sqlite3 reverse module drops columns declared with an inline UNIQUE constraint (#12)');
-        $this->assertNotError($this->db->exec('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL, code VARCHAR(10) UNIQUE)'));
-        $this->assertSame(array('id', 'code'), $this->db->manager->listTableFields('mdb2_inline_test'));
+        $this->assertNotError($this->db->exec(
+            "CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL, code VARCHAR(10) UNIQUE, a TEXT NOT NULL UNIQUE, b TEXT UNIQUE NOT NULL, c VARCHAR(10) DEFAULT 'x' UNIQUE)"
+        ));
+        $this->assertSame(
+            array('id', 'code', 'a', 'b', 'c'),
+            $this->db->manager->listTableFields('mdb2_inline_test')
+        );
+        $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition('mdb2_inline_test', 'b'));
+        $this->assertTrue($definition[0]['notnull']);
+        $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition('mdb2_inline_test', 'c'));
+        $this->assertSame('x', $definition[0]['default']);
     }
 
-    public function testSqliteTableInfoWithInlinePrimaryKey()
+    /**
+     * tableInfo() failed on tables with an inline PRIMARY KEY (#13).
+     *
+     * @dataProvider inlinePrimaryKeyProvider
+     */
+    public function testSqliteInlinePrimaryKey($sql, $column)
     {
         $this->requireDriver('sqlite3');
-        $this->knownBug('sqlite3 tableInfo() fails on tables with an inline PRIMARY KEY (#13)');
-        $this->assertNotError($this->db->exec('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL PRIMARY KEY, name TEXT)'));
+        $this->assertNotError($this->db->exec($sql));
         $this->assertNotError($this->db->reverse->tableInfo('mdb2_inline_test'));
+        $definition = $this->assertNotError(
+            $this->db->reverse->getTableConstraintDefinition('mdb2_inline_test', 'primary')
+        );
+        $this->assertTrue($definition['primary']);
+        $this->assertSame(array($column), array_keys($definition['fields']));
+    }
+
+    public function inlinePrimaryKeyProvider()
+    {
+        return array(
+            'first column' => array('CREATE TABLE mdb2_inline_test (id INTEGER NOT NULL PRIMARY KEY, name TEXT)', 'id'),
+            'second column' => array('CREATE TABLE mdb2_inline_test (price DECIMAL(10,2), code VARCHAR(10) PRIMARY KEY)', 'code'),
+            'quoted' => array('CREATE TABLE mdb2_inline_test ("id" INTEGER PRIMARY KEY, "name" TEXT)', 'id'),
+            'literal in default' => array("CREATE TABLE mdb2_inline_test (note VARCHAR(20) DEFAULT 'PRIMARY KEY', id INTEGER PRIMARY KEY)", 'id'),
+            'literal in default with table constraint' => array("CREATE TABLE mdb2_inline_test (note VARCHAR(20) DEFAULT 'it''s PRIMARY KEY (note)', id INTEGER NOT NULL, PRIMARY KEY (id))", 'id'),
+        );
     }
 
     public function testGetTableIndexDefinition()
@@ -107,27 +137,11 @@ class ReverseTest extends TestCase
     public function testGetTableConstraintDefinitionPrimary()
     {
         $this->requireDriver('pgsql', 'mysqli');
-        $this->knownPgsqlConsrcBug();
         $constraints = $this->assertNotError($this->db->manager->listTableConstraints('mdb2_users'));
         $primary = $this->db->phptype === 'mysqli' ? 'primary' : 'mdb2_users_pkey';
         $this->assertContains($primary, $constraints);
         $definition = $this->assertNotError($this->db->reverse->getTableConstraintDefinition('mdb2_users', $primary));
         $this->assertTrue($definition['primary']);
         $this->assertSame(array('id'), array_keys($definition['fields']));
-    }
-
-    /**
-     * pg_constraint.consrc was removed in PostgreSQL 12.
-     */
-    private function knownPgsqlConsrcBug()
-    {
-        if ($this->db->phptype !== 'pgsql') {
-            return;
-        }
-        $version = $this->assertNotError($this->db->getServerVersion());
-        $this->knownBug(
-            'pgsql getTableConstraintDefinition() refers to pg_constraint.consrc removed in PostgreSQL 12 (#11)',
-            (int) $version['major'] >= 12
-        );
     }
 }

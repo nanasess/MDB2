@@ -125,11 +125,7 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
             $native_code = @$this->connection->lastErrorCode();
         }
         $native_msg = $this->_lasterror
-            ? html_entity_decode($this->_lasterror) : '';//@$this->getConnection()->lastErrorMsg();
-
-        // PHP 5.2+ prepends the function name to $php_errormsg, so we need
-        // this hack to work around it, per bug #9599.
-        $native_msg = preg_replace('/^sqlite[a-z_]+\(\)[^:]*: /', '', $native_msg);
+            ? html_entity_decode($this->_lasterror) : '';
 
         if (null === $error) {
             static $error_regexps;
@@ -142,6 +138,9 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
                     '/is not unique/' => MDB2_ERROR_CONSTRAINT,
                     '/columns .* are not unique/i' => MDB2_ERROR_CONSTRAINT,
                     '/uniqueness constraint failed/' => MDB2_ERROR_CONSTRAINT,
+                    '/^(UNIQUE|PRIMARY KEY) constraint failed:/' => MDB2_ERROR_CONSTRAINT,
+                    '/^NOT NULL constraint failed:/' => MDB2_ERROR_CONSTRAINT_NOT_NULL,
+                    '/^(CHECK|FOREIGN KEY) constraint failed/' => MDB2_ERROR_CONSTRAINT,
                     '/violates .*constraint/' => MDB2_ERROR_CONSTRAINT,
                     '/may not be NULL/' => MDB2_ERROR_CONSTRAINT_NOT_NULL,
                     '/^no such column:/' => MDB2_ERROR_NOSUCHFIELD,
@@ -411,13 +410,11 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
             }
         }
 
-        $php_errormsg = '';
-        @ini_set('track_errors', true);
-        $connection = new SQLite3($database_file); // persistent connection not supported?
-        @ini_restore('track_errors');
-    
-        $this->_lasterror = $php_errormsg;
-        if (!$connection) {
+        $this->_lasterror = '';
+        try {
+            $connection = new SQLite3($database_file); // persistent connection not supported?
+        } catch (Exception $e) {
+            $this->_lasterror = $e->getMessage();
             return $this->raiseError(MDB2_ERROR_CONNECT_FAILED, null, null,
             'unable to establish a connection', __FUNCTION__);
         }
@@ -527,14 +524,11 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
             }
         }
 
-        $php_errormsg = '';
-        @ini_set('track_errors', true);
         do {
             $result = @$connection->query($query.';');  // result_buffering unsupported?
         } while ($connection->lastErrorCode() == 17); // SQLITE_SCHEMA
-        @ini_restore('track_errors');
-        $this->_lasterror = $php_errormsg;
-        
+        $this->_lasterror = $result ? '' : $connection->lastErrorMsg();
+
         if (!$result) {
             $code = null;
             if (false !== strpos($this->_lasterror, 'no such table')) {

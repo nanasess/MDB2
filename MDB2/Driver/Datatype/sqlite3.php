@@ -196,6 +196,10 @@ class MDB2_Driver_Datatype_sqlite3 extends MDB2_Driver_Datatype_Common
         case 'decimal':
             $length = !empty($field['length']) ? $field['length'] : 18;
             $scale = !empty($field['scale']) ? $field['scale'] : $db->options['decimal_places'];
+            if (strpos($length, ',') !== false) {
+                // "precision,scale" as returned by the reverse module
+                list($length, $scale) = explode(',', $length);
+            }
             return 'DECIMAL('.$length.','.$scale.')';
         }
         return '';
