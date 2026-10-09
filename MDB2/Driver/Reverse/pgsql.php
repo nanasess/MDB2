@@ -524,7 +524,7 @@ class MDB2_Driver_Reverse_pgsql extends MDB2_Driver_Reverse_Common
         }
 
         $resource = MDB2::isResultCommon($result) ? $result->getResource() : $result;
-        if (!is_resource($resource)) {
+        if (!$db->isResult($resource)) {
             return $db->raiseError(MDB2_ERROR_NEED_MORE_DATA, null, null,
                 'Could not generate result resource', __FUNCTION__);
         }
