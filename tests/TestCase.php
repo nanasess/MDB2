@@ -192,35 +192,6 @@ abstract class TestCase extends \PHPUnit\Framework\TestCase
     }
 
     /**
-     * The sqlite3 driver does not map native errors to MDB2 error codes:
-     * the error message is read from $php_errormsg, which was removed in
-     * PHP 8.0, and the "SQLite3::query(): ..." prefix is not stripped on
-     * older versions.
-     *
-     * @param bool $php8_only whether only PHP 8+ is affected
-     */
-    protected function knownSqliteErrorMappingBug($php8_only = false)
-    {
-        $this->knownBug(
-            'sqlite3 driver does not map native errors to MDB2 error codes (#9)',
-            $this->db->phptype === 'sqlite3' && (!$php8_only || PHP_VERSION_ID >= 80000)
-        );
-    }
-
-    /**
-     * PHP 8.1 changed the default mysqli error mode to MYSQLI_REPORT_ERROR |
-     * MYSQLI_REPORT_STRICT, so failed queries throw mysqli_sql_exception
-     * instead of returning an MDB2 error.
-     */
-    protected function knownMysqliExceptionBug()
-    {
-        $this->knownBug(
-            'mysqli driver throws mysqli_sql_exception on PHP 8.1+ instead of returning an MDB2 error (#10)',
-            $this->db->phptype === 'mysqli' && PHP_VERSION_ID >= 80100
-        );
-    }
-
-    /**
      * Skip the test unless the driver under test is one of $phptypes.
      */
     protected function requireDriver()

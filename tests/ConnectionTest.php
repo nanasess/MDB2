@@ -45,7 +45,6 @@ class ConnectionTest extends TestCase
     public function testConnectFailure()
     {
         $this->requireDriver('pgsql', 'mysqli');
-        $this->knownMysqliExceptionBug();
         $dsn = MDB2::parseDSN(self::getDsn());
         $dsn['password'] = 'invalid-password';
         $db = MDB2::connect($dsn);

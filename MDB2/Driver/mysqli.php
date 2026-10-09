@@ -511,6 +511,32 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _mysqli()
+
+    /**
+     * Call a mysqli function and return false instead of throwing
+     * mysqli_sql_exception, which is the default since PHP 8.1
+     * (MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT). The error is still
+     * available from mysqli_errno()/mysqli_error() for errorInfo().
+     *
+     * @param string $function name of the mysqli function
+     * @param mixed  ...       arguments passed to the function
+     *
+     * @return mixed the return value of the function, false on error
+     * @access protected
+     */
+    function _mysqli($function)
+    {
+        $args = func_get_args();
+        array_shift($args);
+        try {
+            return @call_user_func_array($function, $args);
+        } catch (mysqli_sql_exception $e) {
+            return false;
+        }
+    }
+
+    // }}}
     // {{{ _doConnect()
 
     /**
@@ -542,7 +568,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             );
         }
 
-        if (!@mysqli_real_connect(
+        if (!$this->_mysqli('mysqli_real_connect',
             $connection,
             $this->dsn['hostspec'],
             $username,
@@ -640,7 +666,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             }
             return $this->_doQuery($query, true, $connection);
         }
-        if (!$result = mysqli_set_charset($connection, $charset)) {
+        if (!$result = $this->_mysqli('mysqli_set_charset', $connection, $charset)) {
             $err = $this->raiseError(null, null, null,
                 'Could not set client character set', __FUNCTION__);
             return $err;
@@ -667,7 +693,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             return $connection;
         }
 
-        $result = @mysqli_select_db($connection, $name);
+        $result = $this->_mysqli('mysqli_select_db', $connection, $name);
         @mysqli_close($connection);
 
         return $result;
@@ -789,7 +815,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
 
         if ($database_name) {
             if ($database_name != $this->connected_database_name) {
-                if (!@mysqli_select_db($connection, $database_name)) {
+                if (!$this->_mysqli('mysqli_select_db', $connection, $database_name)) {
                     $err = $this->raiseError(null, null, null,
                         'Could not select the database: '.$database_name, __FUNCTION__);
                     return $err;
@@ -799,10 +825,10 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
         }
 
         if ($this->options['multi_query']) {
-            $result = mysqli_multi_query($connection, $query);
+            $result = $this->_mysqli('mysqli_multi_query', $connection, $query);
         } else {
             $resultmode = $this->options['result_buffering'] ? MYSQLI_USE_RESULT : MYSQLI_USE_RESULT;
-            $result = mysqli_query($connection, $query);
+            $result = $this->_mysqli('mysqli_query', $connection, $query);
         }
 
         if (!$result) {
@@ -818,12 +844,12 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
 
         if ($this->options['multi_query']) {
             if ($this->options['result_buffering']) {
-                if (!($result = @mysqli_store_result($connection))) {
+                if (!($result = $this->_mysqli('mysqli_store_result', $connection))) {
                     $err = $this->raiseError(null, null, null,
                         'Could not get the first result from a multi query', __FUNCTION__);
                     return $err;
                 }
-            } elseif (!($result = @mysqli_use_result($connection))) {
+            } elseif (!($result = $this->_mysqli('mysqli_use_result', $connection))) {
                 $err = $this->raiseError(null, null, null,
                         'Could not get the first result from a multi query', __FUNCTION__);
                 return $err;
@@ -1162,7 +1188,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             }
             $statement = $statement_name;
         } else {
-            $statement = @mysqli_prepare($connection, $query);
+            $statement = $this->_mysqli('mysqli_prepare', $connection, $query);
             if (!$statement) {
                 $err = $this->raiseError(null, null, null,
                     'Unable to create prepared statement handle', __FUNCTION__);
@@ -1544,10 +1570,10 @@ class MDB2_Result_mysqli extends MDB2_Result_Common
         if (!@mysqli_more_results($connection)) {
             return false;
         }
-        if (!@mysqli_next_result($connection)) {
+        if (!$this->db->_mysqli('mysqli_next_result', $connection)) {
             return false;
         }
-        if (!($this->result = @mysqli_use_result($connection))) {
+        if (!($this->result = $this->db->_mysqli('mysqli_use_result', $connection))) {
             return false;
         }
         return MDB2_OK;
@@ -1679,10 +1705,10 @@ class MDB2_BufferedResult_mysqli extends MDB2_Result_mysqli
         if (!@mysqli_more_results($connection)) {
             return false;
         }
-        if (!@mysqli_next_result($connection)) {
+        if (!$this->db->_mysqli('mysqli_next_result', $connection)) {
             return false;
         }
-        if (!($this->result = @mysqli_store_result($connection))) {
+        if (!($this->result = $this->db->_mysqli('mysqli_store_result', $connection))) {
             return false;
         }
         return MDB2_OK;
@@ -1821,7 +1847,7 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     }
                     while (!@feof($value)) {
                         $data = @fread($value, $this->db->options['lob_buffer_length']);
-                        @mysqli_stmt_send_long_data($this->statement, $i, $data);
+                        $this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data);
                     }
                     if ($close) {
                         @fclose($value);
@@ -1844,7 +1870,7 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
             $result = $this->db->_wrapResult($result, $this->result_types,
                 $result_class, $result_wrap_class, $this->limit, $this->offset);
         } else {
-            if (!mysqli_stmt_execute($this->statement)) {
+            if (!$this->db->_mysqli('mysqli_stmt_execute', $this->statement)) {
                 $err = $this->db->raiseError(null, null, null,
                     'Unable to execute statement', __FUNCTION__);
                 return $err;
@@ -1856,7 +1882,7 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
             }
 
             if ($this->db->options['result_buffering']) {
-                @mysqli_stmt_store_result($this->statement);
+                $this->db->_mysqli('mysqli_stmt_store_result', $this->statement);
             }
 
             $result = $this->db->_wrapResult($this->statement, $this->result_types,
@@ -1885,7 +1911,7 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
         $result = MDB2_OK;
 
         if (is_object($this->statement)) {
-            if (!@mysqli_stmt_close($this->statement)) {
+            if (!$this->db->_mysqli('mysqli_stmt_close', $this->statement)) {
                 $result = $this->db->raiseError(null, null, null,
                     'Could not free statement', __FUNCTION__);
             }

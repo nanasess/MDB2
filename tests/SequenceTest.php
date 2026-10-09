@@ -22,9 +22,6 @@ class SequenceTest extends TestCase
 
     public function testNextIdCreatesSequenceOnDemand()
     {
-        // on-demand creation relies on the "no such table" error message
-        $this->knownSqliteErrorMappingBug(true);
-        $this->knownMysqliExceptionBug();
         $this->assertSame(1, (int) $this->assertNotError($this->db->nextID(self::SEQUENCE)));
         $this->assertSame(2, (int) $this->db->nextID(self::SEQUENCE));
         $this->assertSame(2, (int) $this->assertNotError($this->db->currID(self::SEQUENCE)));
@@ -32,7 +29,6 @@ class SequenceTest extends TestCase
 
     public function testNextIdWithoutOnDemand()
     {
-        $this->knownMysqliExceptionBug();
         $this->db->expectError('*');
         $result = $this->db->nextID(self::SEQUENCE, false);
         $this->db->popExpect();

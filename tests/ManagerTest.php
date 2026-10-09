@@ -68,18 +68,36 @@ class ManagerTest extends TestCase
         $this->assertContains('name_unique', $this->db->manager->listTableConstraints(self::TABLE));
     }
 
+    /**
+     * sqlite3 re-creates the table from the reversed definition, which
+     * reports DECIMAL(p,s) as length "p,s" (#14).
+     */
     public function testAlterTableAddColumn()
     {
-        // sqlite3 re-creates the table from the reversed definition
-        $this->knownBug(
-            'sqlite3 alterTable() re-creates DECIMAL(p,s) columns as DECIMAL(p,s,s) (#14)',
-            $this->db->phptype === 'sqlite3'
-        );
         $this->createTestTable();
         $this->assertNotError($this->db->manager->alterTable(self::TABLE, array(
             'add' => array('memo' => array('type' => 'text', 'length' => 50)),
         ), false));
         $this->assertContains('memo', $this->db->manager->listTableFields(self::TABLE));
+
+        $this->assertNotError($this->db->loadModule('Reverse', null, true));
+        $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition(self::TABLE, 'amount'));
+        $this->assertSame('10,2', (string) $definition[0]['length']);
+    }
+
+    /**
+     * Field definitions returned by the reverse module can be passed back
+     * to createTable() (#14).
+     */
+    public function testCreateTableFromReversedDefinition()
+    {
+        $this->assertNotError($this->db->loadModule('Reverse', null, true));
+        $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition('mdb2_users', 'price'));
+        $this->assertNotError($this->db->manager->createTable(self::TABLE, array(
+            'price' => $definition[0],
+        )));
+        $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition(self::TABLE, 'price'));
+        $this->assertSame('10,2', (string) $definition[0]['length']);
     }
 
     private function createTestTable()
