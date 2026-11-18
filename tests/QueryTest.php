@@ -247,6 +247,37 @@ class QueryTest extends TestCase
             'delete with where' => array('DELETE FROM mdb2_users WHERE id >= 2', 3, 0),
             'update without where' => array("UPDATE mdb2_users SET note = 'x'", 5, 2),
             'update with where' => array("UPDATE mdb2_users SET note = 'x' WHERE id >= 2", 5, 2),
+            'multiple lines' => array("UPDATE mdb2_users\nSET note = 'x'\nWHERE id >= 2", 5, 2),
+            'where in subquery' => array("UPDATE mdb2_users SET note = (SELECT 'x' WHERE true) WHERE id >= 2", 5, 2),
+            'line comment at the end' => array('DELETE FROM mdb2_users WHERE id >= 2 -- comment', 3, 0),
+        );
+    }
+
+    /**
+     * A WHERE in a value or a comment was taken as the WHERE clause, so the
+     * rest of the value became part of the condition (#19).
+     *
+     * @dataProvider whereInLiteralProvider
+     */
+    public function testSetLimitWithManipQueryIgnoresWhereInLiteral($note, $comment)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(1, $this->assertNotError($this->db->exec(
+            'UPDATE mdb2_users SET note = '.$this->db->quote($note, 'text').$comment.' WHERE id = 1'
+        )));
+        $this->assertSame(array(1), $this->db->queryCol(
+            "SELECT id FROM mdb2_users WHERE note NOT LIKE 'note%' ORDER BY id", 'integer'
+        ));
+    }
+
+    public function whereInLiteralProvider()
+    {
+        return array(
+            'string literal' => array('x where true) --', ''),
+            'string literal with quote' => array("x' WHERE true) --", ''),
+            'block comment' => array('x', ' /* where true) -- */'),
         );
     }
 
