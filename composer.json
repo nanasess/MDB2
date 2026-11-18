@@ -1,14 +1,28 @@
 {
   "name": "nanasess/mdb2",
-  "description": "PEAR MDB2 is a merge of the PEAR DB and Metabase php database abstraction layers.",
+  "description": "Maintained fork of PEAR MDB2, a database abstraction layer for PHP",
   "type": "library",
-  "keywords": [ "database", "orm", "dbal", "metabase" ],
+  "keywords": [ "database", "dbal", "database abstraction", "pear", "mdb2", "postgresql", "mysql", "sqlite" ],
   "homepage": "https://github.com/nanasess/MDB2",
-  "license": "BSD-2-Clause",
+  "support": {
+    "issues": "https://github.com/nanasess/MDB2/issues",
+    "source": "https://github.com/nanasess/MDB2",
+    "security": "https://github.com/nanasess/MDB2/security/policy"
+  },
+  "license": "BSD-3-Clause",
   "authors": [
     {
       "name": "Kentaro Ohkouchi",
-      "email": "nanasess@fsm.ne.jp"
+      "email": "nanasess@fsm.ne.jp",
+      "role": "Maintainer"
+    },
+    {
+      "name": "Lukas Smith",
+      "role": "Original author"
+    },
+    {
+      "name": "Lorenzo Alberton",
+      "role": "Original author"
     }
   ],
   "require": {

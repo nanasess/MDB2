@@ -4,3 +4,5 @@
 /compose.yaml export-ignore
 /phpunit.xml.dist export-ignore
 /tests export-ignore
+/CLAUDE.md export-ignore
+/SECURITY.md export-ignore
