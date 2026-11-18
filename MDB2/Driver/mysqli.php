@@ -906,7 +906,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             }
         }
         if ($limit > 0
-            && !preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i', $query)
+            && !$this->_hasLimitClause($query)
         ) {
             $query = rtrim($query);
             if (substr($query, -1) == ';') {
@@ -1770,12 +1770,20 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                 $value = $this->values[$parameter];
                 $type = array_key_exists($parameter, $this->types) ? $this->types[$parameter] : null;
                 if (!is_object($this->statement)) {
-                    if (is_resource($value) || $type == 'clob' || $type == 'blob' && $this->db->options['lob_allow_url_include']) {
+                    $close = false;
+                    // URLs are only read when the lob_allow_url_include option is enabled
+                    if (is_resource($value)
+                        || (($type == 'clob' || $type == 'blob') && $this->db->options['lob_allow_url_include'])
+                    ) {
                         if (!is_resource($value) && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
                             if ($match[1] == 'file://') {
                                 $value = $match[2];
                             }
                             $value = @fopen($value, 'r');
+                            if (!is_resource($value)) {
+                                return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                                    'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                            }
                             $close = true;
                         }
                         if (is_resource($value)) {
@@ -1833,11 +1841,18 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     $close = false;
                     if (!is_resource($value)) {
                         $close = true;
-                        if (preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
+                        // URLs are only read when the lob_allow_url_include option is enabled
+                        if ($this->db->options['lob_allow_url_include']
+                            && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)
+                        ) {
                             if ($match[1] == 'file://') {
                                 $value = $match[2];
                             }
                             $value = @fopen($value, 'r');
+                            if (!is_resource($value)) {
+                                return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                                    'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                            }
                         } else {
                             $fp = @tmpfile();
                             @fwrite($fp, $value);

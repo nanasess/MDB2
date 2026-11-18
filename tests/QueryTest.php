@@ -101,6 +101,50 @@ class QueryTest extends TestCase
         $this->assertCount(5, $this->db->queryCol('SELECT id FROM mdb2_users'));
     }
 
+    public function testSetLimitKeepsExistingLimitClause()
+    {
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->db->queryCol('SELECT id FROM mdb2_users ORDER BY id LIMIT 3'));
+    }
+
+    /**
+     * @dataProvider limitLikeValueProvider
+     */
+    public function testSetLimitWithLimitLikeValue($value)
+    {
+        $this->populateUsers(5);
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> '.$this->db->quote($value, 'text')
+        )));
+
+        $this->assertNotError($this->db->setLimit(2));
+        $stmt = $this->assertNotError($this->db->prepare('SELECT id FROM mdb2_users WHERE name <> ?'));
+        $result = $this->assertNotError($stmt->execute(array($value)));
+        $this->assertCount(2, $result->fetchCol());
+        $result->free();
+        $stmt->free();
+
+        $this->assertNotError($this->db->setOption('emulate_prepared', true));
+        $this->assertNotError($this->db->setLimit(2));
+        $stmt = $this->assertNotError($this->db->prepare('SELECT id FROM mdb2_users WHERE name <> ?'));
+        $result = $this->assertNotError($stmt->execute(array($value)));
+        $this->assertCount(2, $result->fetchCol());
+        $result->free();
+        $stmt->free();
+    }
+
+    public function limitLikeValueProvider()
+    {
+        return array(
+            'limit' => array('LIMIT 1'),
+            'quote before limit' => array("it's LIMIT 1"),
+            'backslash before limit' => array('C:\\ LIMIT 1'),
+        );
+    }
+
     /**
      * @dataProvider quoteProvider
      */

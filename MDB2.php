@@ -324,6 +324,11 @@ class MDB2
      */
     static function loadClass($class_name, $debug)
     {
+        // the class name becomes a file path, e.g. from the phptype of a DSN
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $class_name)) {
+            return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                'invalid class name: '.$class_name);
+        }
         if (!MDB2::classExists($class_name)) {
             $file_name = str_replace('_', DIRECTORY_SEPARATOR, $class_name).'.php';
             if ($debug) {
@@ -512,6 +517,11 @@ class MDB2
      */
     static function loadFile($file)
     {
+        // no '.' so the path cannot leave the MDB2 directory
+        if (!preg_match('/^[A-Za-z0-9_\/]+$/', $file)) {
+            return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                'invalid file name: '.$file);
+        }
         $file_name = 'MDB2'.DIRECTORY_SEPARATOR.$file.'.php';
         if (!MDB2::fileExists($file_name)) {
             return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
@@ -2486,6 +2496,121 @@ class MDB2_Driver_Common
     function _modifyQuery($query, $is_manip, $limit, $offset)
     {
         return $query;
+    }
+
+    // }}}
+    // {{{ function _hasLimitClause($query)
+
+    /**
+     * Checks if a query already ends with a LIMIT clause
+     *
+     * String literals, delimited identifiers and comments are ignored, so a
+     * value such as 'LIMIT 1' in the query is not mistaken for the clause.
+     *
+     * @param   string  query to check
+     *
+     * @return  bool    true if the query ends with a LIMIT clause
+     *
+     * @access  protected
+     */
+    function _hasLimitClause($query)
+    {
+        return (bool)preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i',
+            $this->_removeLiteralsAndComments($query));
+    }
+
+    // }}}
+    // {{{ function _backslashEscapesInStrings()
+
+    /**
+     * Whether a backslash escapes the next character in a string literal
+     *
+     * @return  bool
+     *
+     * @access  protected
+     */
+    function _backslashEscapesInStrings()
+    {
+        return $this->string_quoting['escape'] === '\\';
+    }
+
+    // }}}
+    // {{{ function _removeLiteralsAndComments($query)
+
+    /**
+     * Empties string literals and delimited identifiers and removes comments,
+     * so the structure of a query can be inspected without being misled by
+     * the values in it
+     *
+     * @param   string  query
+     *
+     * @return  string  the query with '' for each string literal, an empty
+     *                  delimited identifier for each delimited identifier and
+     *                  a space for each comment
+     *
+     * @access  protected
+     */
+    function _removeLiteralsAndComments($query)
+    {
+        $string = $this->string_quoting;
+        $backslash = $this->_backslashEscapesInStrings();
+        $ignores = array();
+        if (!empty($this->identifier_quoting['start'])) {
+            $ignores[] = $this->identifier_quoting + array('replace' => null);
+        }
+        foreach ($this->sql_comments as $comment) {
+            $ignores[] = $comment + array('replace' => ' ');
+        }
+
+        $result = '';
+        $length = strlen($query);
+        $i = 0;
+        while ($i < $length) {
+            if ($query[$i] === $string['start']) {
+                for (++$i; $i < $length; ++$i) {
+                    if ($backslash && $query[$i] === '\\') {
+                        ++$i;
+                    } elseif ($query[$i] === $string['end']) {
+                        if ($i + 1 < $length && $query[$i + 1] === $string['end']) {
+                            ++$i;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                ++$i;
+                $result.= $string['start'].$string['end'];
+                continue;
+            }
+            foreach ($ignores as $ignore) {
+                $start_length = strlen($ignore['start']);
+                if (substr($query, $i, $start_length) !== $ignore['start']) {
+                    continue;
+                }
+                $end = $i + $start_length;
+                do {
+                    $end = strpos($query, $ignore['end'], $end);
+                    if (false === $end) {
+                        $end = $length;
+                        break;
+                    }
+                    $end+= strlen($ignore['end']);
+                    // a doubled end delimiter is an escaped one
+                    $escaped = $ignore['escape'] === $ignore['end']
+                        && substr($query, $end, strlen($ignore['end'])) === $ignore['end'];
+                    if ($escaped) {
+                        $end+= strlen($ignore['end']);
+                    }
+                } while ($escaped);
+                $result.= (null === $ignore['replace'])
+                    ? $ignore['start'].$ignore['end'] : $ignore['replace'];
+                $i = $end;
+                continue 2;
+            }
+            $result.= $query[$i];
+            ++$i;
+        }
+        return $result;
     }
 
     // }}}

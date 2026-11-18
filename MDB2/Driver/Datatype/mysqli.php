@@ -424,7 +424,14 @@ class MDB2_Driver_Datatype_mysqli extends MDB2_Driver_Datatype_Common
             if ($key % 2) {
                 $match.= $value;
             } else {
-                $match.= $db->escapePattern($db->escape($value));
+                // escape the LIKE wildcards first and the string last, so
+                // the escape characters added for the string are not
+                // escaped again (that would end the string literal)
+                $escaped = $db->escape($db->escapePattern($value));
+                if (MDB2::isError($escaped)) {
+                    return $escaped;
+                }
+                $match.= $escaped;
             }
         }
         $match.= "'";

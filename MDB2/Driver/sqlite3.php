@@ -176,6 +176,11 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
      */
     function escape($text, $escape_wildcards = false)
     {
+        // the escaping function stops at a NUL byte and drops the rest
+        if (false !== strpos((string)$text, "\0")) {
+            return $this->raiseError(MDB2_ERROR_INVALID, null, null,
+                'a string containing a NUL byte cannot be quoted', __FUNCTION__);
+        }
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
@@ -587,7 +592,7 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
             }
         }
         if ($limit > 0
-            && !preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i', $query)
+            && !$this->_hasLimitClause($query)
         ) {
             $query = rtrim($query);
             if (substr($query, -1) == ';') {

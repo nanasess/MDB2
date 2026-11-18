@@ -207,6 +207,11 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function escape($text, $escape_wildcards = false)
     {
+        // the escaping function stops at a NUL byte and drops the rest
+        if (false !== strpos((string)$text, "\0")) {
+            return $this->raiseError(MDB2_ERROR_INVALID, null, null,
+                'a string containing a NUL byte cannot be quoted', __FUNCTION__);
+        }
         if ($escape_wildcards) {
             $text = $this->escapePattern($text);
         }
@@ -735,6 +740,21 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _backslashEscapesInStrings()
+
+    /**
+     * Whether a backslash escapes the next character in a string literal
+     *
+     * @return bool
+     * @access protected
+     */
+    function _backslashEscapesInStrings()
+    {
+        // _doConnect() sets standard_conforming_strings to off
+        return true;
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
@@ -750,7 +770,7 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     function _modifyQuery($query, $is_manip, $limit, $offset)
     {
         if ($limit > 0
-            && !preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i', $query)
+            && !$this->_hasLimitClause($query)
         ) {
             $query = rtrim($query);
             if (substr($query, -1) == ';') {
@@ -1496,12 +1516,20 @@ class MDB2_Statement_pgsql extends MDB2_Statement_Common
                 }
                 $value = $this->values[$parameter];
                 $type = array_key_exists($parameter, $this->types) ? $this->types[$parameter] : null;
-                if (is_resource($value) || $type == 'clob' || $type == 'blob' || $this->db->options['lob_allow_url_include']) {
+                $close = false;
+                // URLs are only read when the lob_allow_url_include option is enabled
+                if (is_resource($value)
+                    || (($type == 'clob' || $type == 'blob') && $this->db->options['lob_allow_url_include'])
+                ) {
                     if (!is_resource($value) && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
                         if ($match[1] == 'file://') {
                             $value = $match[2];
                         }
                         $value = @fopen($value, 'r');
+                        if (!is_resource($value)) {
+                            return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                                'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                        }
                         $close = true;
                     }
                     if (is_resource($value)) {
