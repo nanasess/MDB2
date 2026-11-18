@@ -356,7 +356,7 @@ class QueryTest extends TestCase
         $this->populateUsers(5);
         $this->assertNotError($this->db->setCharset($charset));
         $char = hex2bin($char);
-        if ($this->db->escape($char) !== $char) {
+        if ($this->assertNotError($this->db->escape($char)) !== $char) {
             // e.g. mysqlnd of PHP 7.4 escapes the second byte of a Big5
             // character, which the server then takes for an escaped quote
             $this->markTestSkipped('The client library does not take '.bin2hex($char).' for one character in '.$charset);
@@ -398,6 +398,54 @@ class QueryTest extends TestCase
             'pgsql BIG5' => array('pgsql', 'BIG5', 'a15c'),
             'pgsql GB18030' => array('pgsql', 'GB18030', '815c'),
         );
+    }
+
+    /**
+     * Reading the query in the character set of the connection must not
+     * open the normal connection: pg_connect() can return the same link as
+     * the DBA connection of standaloneQuery(), which closes it afterwards.
+     */
+    public function testStandaloneQueryWithLimitKeepsTheConnection()
+    {
+        $this->requireDriver('pgsql', 'mysqli');
+        $this->populateUsers(5);
+        // pg_connect() would also share the link with $this->db, which
+        // reconnects in tearDown()
+        $this->db->disconnect();
+        $db = \MDB2::factory(self::getDsn(), array('persistent' => false, 'result_buffering' => false));
+        $this->assertNotError($db);
+        try {
+            $this->assertNotError($db->setLimit(2));
+            $this->assertSame(2, $this->assertNotError($db->standaloneQuery(
+                "UPDATE mdb2_users SET note = 'x'", null, true
+            )));
+            $this->assertSame(2, (int)$this->assertNotError($db->queryOne(
+                "SELECT COUNT(*) FROM mdb2_users WHERE note = 'x'"
+            )));
+        } finally {
+            $db->disconnect();
+        }
+    }
+
+    /**
+     * Without a database name there is no normal connection to read the
+     * character set from.
+     */
+    public function testStandaloneQueryWithLimitWithoutDatabase()
+    {
+        $this->requireDriver('pgsql');
+        $dsn = \MDB2::parseDSN(self::getDsn());
+        $dsn['database'] = '';
+        $db = \MDB2::factory($dsn, array('persistent' => false, 'result_buffering' => false));
+        $this->assertNotError($db);
+        try {
+            $this->assertNotError($db->setLimit(1));
+            $result = $this->assertNotError($db->standaloneQuery('SELECT 1 AS one UNION ALL SELECT 2'));
+            $this->assertSame(array(array('1')), $result->fetchAll(MDB2_FETCHMODE_ORDERED));
+            $result->free();
+        } finally {
+            $db->disconnect();
+        }
     }
 
     public function testSetLimitIgnoresLimitInCommentAndIdentifier()

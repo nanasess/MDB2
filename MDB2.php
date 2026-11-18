@@ -1250,6 +1250,16 @@ class MDB2_Driver_Common
     );
 
     /**
+     * the connection a query is going to be sent to, when it is not the
+     * one in $connection (e.g. the DBA connection of standaloneQuery())
+     *
+     * @var     mixed
+     * @access  protected
+     * @see     _scanConnection()
+     */
+    protected $scan_connection = null;
+
+    /**
      * comparision wildcards
      * @var     array
      * @access  protected
@@ -2458,12 +2468,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
 
         $result = $this->_doQuery($query, $is_manip, $connection, false);
         if (MDB2::isError($result)) {
@@ -2578,6 +2589,26 @@ class MDB2_Driver_Common
     function _backslashEscapesInStrings()
     {
         return $this->string_quoting['escape'] === '\\';
+    }
+
+    // }}}
+    // {{{ function _scanConnection()
+
+    /**
+     * The connection a query is going to be sent to, for reading the query
+     * in its character set
+     *
+     * It does not connect, the callers of _modifyQuery() connect first.
+     *
+     * @return  mixed   the native connection, or null if there is none
+     *
+     * @access  protected
+     */
+    function _scanConnection()
+    {
+        $connection = (null !== $this->scan_connection)
+            ? $this->scan_connection : $this->connection;
+        return (is_object($connection) || is_resource($connection)) ? $connection : null;
     }
 
     // }}}
@@ -2920,12 +2951,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, true, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, true, $limit, $offset);
 
         $result = $this->_doQuery($query, true, $connection, $this->database_name);
         if (MDB2::isError($result)) {
@@ -2957,12 +2989,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, false, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, false, $limit, $offset);
 
         $result = $this->_doQuery($query, false, $connection, $this->database_name);
         if (MDB2::isError($result)) {

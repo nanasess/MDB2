@@ -654,7 +654,10 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
+        // read the query in the character set of the DBA connection
+        $this->scan_connection = $connection;
         $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
+        $this->scan_connection = null;
 
         $result = $this->_doQuery($query, $is_manip, $connection, $this->database_name);
         if (!MDB2::isError($result)) {
@@ -786,8 +789,8 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function _connectionCharset()
     {
-        $connection = $this->getConnection();
-        if (MDB2::isError($connection)) {
+        $connection = $this->_scanConnection();
+        if (null === $connection) {
             return null;
         }
         $charset = @pg_client_encoding($connection);
@@ -970,6 +973,12 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         $pgtypes = function_exists('pg_prepare') ? false : array();
         if ($pgtypes !== false && !empty($types)) {
             $this->loadModule('Datatype', null, true);
+        }
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
+        $connection = $this->getConnection();
+        if (MDB2::isError($connection)) {
+            return $connection;
         }
         $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
         $placeholder_type_guess = $placeholder_type = null;

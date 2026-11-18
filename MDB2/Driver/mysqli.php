@@ -765,7 +765,10 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
+        // read the query in the character set of the DBA connection
+        $this->scan_connection = $connection;
         $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
+        $this->scan_connection = null;
 
         $result = $this->_doQuery($query, $is_manip, $connection, $this->database_name);
         if (!MDB2::isError($result)) {
@@ -913,8 +916,8 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
      */
     function _backslashEscapesInStrings()
     {
-        $connection = $this->getConnection();
-        if (MDB2::isError($connection)) {
+        $connection = $this->_scanConnection();
+        if (null === $connection) {
             return true;
         }
         return @mysqli_real_escape_string($connection, '\\') === '\\\\';
@@ -933,8 +936,8 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
      */
     function _connectionCharset()
     {
-        $connection = $this->getConnection();
-        if (MDB2::isError($connection)) {
+        $connection = $this->_scanConnection();
+        if (null === $connection) {
             return null;
         }
         $charset = @mysqli_character_set_name($connection);
