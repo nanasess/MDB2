@@ -133,6 +133,58 @@ class QueryTest extends TestCase
         )));
     }
 
+    /**
+     * @dataProvider sqliteIdentifierProvider
+     */
+    public function testSetLimitKeepsExistingLimitClauseAfterSqliteIdentifier($alias)
+    {
+        $this->requireDriver('sqlite3');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users AS '.$alias.' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function sqliteIdentifierProvider()
+    {
+        return array(
+            'brackets' => array("[it's]"),
+            'backticks' => array("`it's`"),
+        );
+    }
+
+    /**
+     * @dataProvider dollarQuotedStringProvider
+     */
+    public function testSetLimitKeepsExistingLimitClauseAfterDollarQuotedString($literal)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> '.$literal.' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function dollarQuotedStringProvider()
+    {
+        return array(
+            'without tag' => array("\$\$it's\$\$"),
+            'with tag' => array("\$t\$it's \$\$ LIMIT 1\$t\$"),
+        );
+    }
+
+    public function testSetLimitIgnoresLimitInDollarQuotedString()
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> $$LIMIT 1$$'
+        )));
+    }
+
     public function testSetLimitKeepsExistingLimitClauseWithNoBackslashEscapes()
     {
         $this->requireDriver('mysqli');

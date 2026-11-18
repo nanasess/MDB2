@@ -744,6 +744,20 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _dollarQuotedStrings()
+
+    /**
+     * Whether $tag$...$tag$ is a string literal
+     *
+     * @return bool
+     * @access protected
+     */
+    function _dollarQuotedStrings()
+    {
+        return true;
+    }
+
+    // }}}
     // {{{ _backslashEscapesInStrings()
 
     /**

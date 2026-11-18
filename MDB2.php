@@ -2535,6 +2535,37 @@ class MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ function _otherIdentifierQuoting()
+
+    /**
+     * Delimiters of identifiers other than identifier_quoting
+     *
+     * @return  array   list of arrays with the 'start', 'end' and 'escape'
+     *                  keys like identifier_quoting
+     *
+     * @access  protected
+     */
+    function _otherIdentifierQuoting()
+    {
+        return array();
+    }
+
+    // }}}
+    // {{{ function _dollarQuotedStrings()
+
+    /**
+     * Whether $tag$...$tag$ is a string literal
+     *
+     * @return  bool
+     *
+     * @access  protected
+     */
+    function _dollarQuotedStrings()
+    {
+        return false;
+    }
+
+    // }}}
     // {{{ function _backslashEscapesInStrings()
 
     /**
@@ -2569,9 +2600,14 @@ class MDB2_Driver_Common
     {
         $quote_chars = $this->_stringQuoteChars();
         $backslash = $this->_backslashEscapesInStrings();
+        $dollar = $this->_dollarQuotedStrings();
         $ignores = array();
+        $identifiers = $this->_otherIdentifierQuoting();
         if (!empty($this->identifier_quoting['start'])) {
-            $ignores[] = $this->identifier_quoting + array('replace' => null);
+            array_unshift($identifiers, $this->identifier_quoting);
+        }
+        foreach ($identifiers as $identifier) {
+            $ignores[] = $identifier + array('replace' => null);
         }
         foreach ($this->sql_comments as $comment) {
             $ignores[] = $comment + array('replace' => ' ');
@@ -2581,6 +2617,15 @@ class MDB2_Driver_Common
         $length = strlen($query);
         $i = 0;
         while ($i < $length) {
+            if ($dollar && $query[$i] === '$'
+                && preg_match('/\G\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/', $query, $match, 0, $i)
+            ) {
+                // the literal ends with the same $tag$, there are no escapes
+                $end = strpos($query, $match[0], $i + strlen($match[0]));
+                $i = (false === $end) ? $length : $end + strlen($match[0]);
+                $result.= "''";
+                continue;
+            }
             $quote = $query[$i];
             if (in_array($quote, $quote_chars, true)) {
                 // the literal ends with the character that started it

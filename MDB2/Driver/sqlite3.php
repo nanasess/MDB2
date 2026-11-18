@@ -571,6 +571,25 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _otherIdentifierQuoting()
+
+    /**
+     * Delimiters of identifiers other than identifier_quoting
+     *
+     * SQLite also accepts [identifier] and `identifier`.
+     *
+     * @return array
+     * @access protected
+     */
+    function _otherIdentifierQuoting()
+    {
+        return array(
+            array('start' => '[', 'end' => ']', 'escape' => false),
+            array('start' => '`', 'end' => '`', 'escape' => '`'),
+        );
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
