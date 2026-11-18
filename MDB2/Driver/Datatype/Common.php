@@ -1175,6 +1175,9 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
                 'type not defined: '.$type, __FUNCTION__);
         }
         $value = $this->{"_quote{$type}"}($value, $quote, $escape_wildcards);
+        if (MDB2::isError($value)) {
+            return $value;
+        }
         if ($quote && $escape_wildcards && $db->string_quoting['escape_pattern']
             && $db->string_quoting['escape'] !== $db->string_quoting['escape_pattern']
         ) {
@@ -1266,7 +1269,15 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
             $fp = $value;
             $value = '';
             while (!@feof($fp)) {
-                $value.= @fread($fp, $db->options['lob_buffer_length']);
+                $chunk = @fread($fp, $db->options['lob_buffer_length']);
+                if (false === $chunk) {
+                    if ($close) {
+                        @fclose($fp);
+                    }
+                    return $db->raiseError(MDB2_ERROR, null, null,
+                        'Unable to read the LOB source', __FUNCTION__);
+                }
+                $value.= $chunk;
             }
             if ($close) {
                 @fclose($fp);

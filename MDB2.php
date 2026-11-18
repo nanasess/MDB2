@@ -2520,6 +2520,21 @@ class MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ function _stringQuoteChars()
+
+    /**
+     * The characters that start (and end) a string literal
+     *
+     * @return  array
+     *
+     * @access  protected
+     */
+    function _stringQuoteChars()
+    {
+        return array($this->string_quoting['start']);
+    }
+
+    // }}}
     // {{{ function _backslashEscapesInStrings()
 
     /**
@@ -2552,7 +2567,7 @@ class MDB2_Driver_Common
      */
     function _removeLiteralsAndComments($query)
     {
-        $string = $this->string_quoting;
+        $quote_chars = $this->_stringQuoteChars();
         $backslash = $this->_backslashEscapesInStrings();
         $ignores = array();
         if (!empty($this->identifier_quoting['start'])) {
@@ -2566,12 +2581,14 @@ class MDB2_Driver_Common
         $length = strlen($query);
         $i = 0;
         while ($i < $length) {
-            if ($query[$i] === $string['start']) {
+            $quote = $query[$i];
+            if (in_array($quote, $quote_chars, true)) {
+                // the literal ends with the character that started it
                 for (++$i; $i < $length; ++$i) {
                     if ($backslash && $query[$i] === '\\') {
                         ++$i;
-                    } elseif ($query[$i] === $string['end']) {
-                        if ($i + 1 < $length && $query[$i + 1] === $string['end']) {
+                    } elseif ($query[$i] === $quote) {
+                        if ($i + 1 < $length && $query[$i + 1] === $quote) {
                             ++$i;
                         } else {
                             break;
@@ -2579,7 +2596,7 @@ class MDB2_Driver_Common
                     }
                 }
                 ++$i;
-                $result.= $string['start'].$string['end'];
+                $result.= $quote.$quote;
                 continue;
             }
             foreach ($ignores as $ignore) {

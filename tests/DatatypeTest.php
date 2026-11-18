@@ -209,6 +209,39 @@ class DatatypeTest extends TestCase
         $this->assertSame('stream contents', $this->db->queryOne('SELECT note FROM mdb2_users WHERE id = 1'));
     }
 
+    public function testLobReadError()
+    {
+        $this->populateUsers(1);
+        // a write-only stream cannot be read
+        $fp = fopen($this->createTempFile(''), 'w');
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ? WHERE id = 1', array('clob'), MDB2_PREPARE_MANIP
+        ));
+        $this->assertTrue(\MDB2::isError($stmt->execute(array($fp))));
+        $stmt->free();
+        fclose($fp);
+    }
+
+    public function testLobErrorDoesNotLeaveDataForNextExecute()
+    {
+        $this->requireDriver('pgsql', 'mysqli');
+        $this->db->setOption('lob_allow_url_include', true);
+        $this->populateUsers(1);
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ?, email = ? WHERE id = 1',
+            array('clob', 'clob'),
+            MDB2_PREPARE_MANIP
+        ));
+        $missing = 'file://'.sys_get_temp_dir().'/mdb2-missing-'.uniqid();
+        $this->assertMDB2Error(MDB2_ERROR_NOT_FOUND, $stmt->execute(array('first', $missing)));
+        $this->assertSame(1, $this->assertNotError($stmt->execute(array('first', 'second@example.com'))));
+        $stmt->free();
+        $this->assertSame(
+            array('note' => 'first', 'email' => 'second@example.com'),
+            $this->db->queryRow('SELECT note, email FROM mdb2_users WHERE id = 1')
+        );
+    }
+
     public function testNulByte()
     {
         $value = "before\0after";
@@ -218,7 +251,14 @@ class DatatypeTest extends TestCase
         } else {
             // the escaping function would cut the value at the NUL byte
             $this->assertMDB2Error(MDB2_ERROR_INVALID, $quoted);
+            $this->assertMDB2Error(MDB2_ERROR_INVALID, $this->db->quote($value, 'text', true, true));
         }
+    }
+
+    public function testDatabaseExistsWithNulByte()
+    {
+        $this->requireDriver('pgsql');
+        $this->assertFalse($this->db->databaseExists("mdb2\0test"));
     }
 
     /**

@@ -883,6 +883,44 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _stringQuoteChars()
+
+    /**
+     * The characters that start (and end) a string literal
+     *
+     * MySQL also accepts double quoted strings unless ANSI_QUOTES is set.
+     *
+     * @return array
+     * @access protected
+     */
+    function _stringQuoteChars()
+    {
+        return array("'", '"');
+    }
+
+    // }}}
+    // {{{ _backslashEscapesInStrings()
+
+    /**
+     * Whether a backslash escapes the next character in a string literal
+     *
+     * It does not when the NO_BACKSLASH_ESCAPES SQL mode is set.
+     * mysqli_real_escape_string() follows the SQL mode of the connection,
+     * so it shows which one is in effect.
+     *
+     * @return bool
+     * @access protected
+     */
+    function _backslashEscapesInStrings()
+    {
+        $connection = $this->getConnection();
+        if (MDB2::isError($connection)) {
+            return true;
+        }
+        return @mysqli_real_escape_string($connection, '\\') === '\\\\';
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
@@ -1789,7 +1827,15 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                         if (is_resource($value)) {
                             $data = '';
                             while (!@feof($value)) {
-                                $data.= @fread($value, $this->db->options['lob_buffer_length']);
+                                $chunk = @fread($value, $this->db->options['lob_buffer_length']);
+                                if (false === $chunk) {
+                                    if ($close) {
+                                        @fclose($value);
+                                    }
+                                    return $this->db->raiseError(MDB2_ERROR, null, null,
+                                        'Unable to read the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                                }
+                                $data.= $chunk;
                             }
                             if ($close) {
                                 @fclose($value);
@@ -1850,6 +1896,8 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                             }
                             $value = @fopen($value, 'r');
                             if (!is_resource($value)) {
+                                // discard the long data sent for the previous LOBs
+                                $this->db->_mysqli('mysqli_stmt_reset', $this->statement);
                                 return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
                                     'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
                             }
@@ -1862,12 +1910,17 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     }
                     while (!@feof($value)) {
                         $data = @fread($value, $this->db->options['lob_buffer_length']);
-                        if (!$this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data)) {
+                        if (false === $data
+                            || !$this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data)
+                        ) {
                             if ($close) {
                                 @fclose($value);
                             }
+                            // discard the long data sent so far
+                            $this->db->_mysqli('mysqli_stmt_reset', $this->statement);
                             $err = $this->db->raiseError(null, null, null,
-                                'Unable to send LOB data', __FUNCTION__);
+                                false === $data ? 'Unable to read the LOB source' : 'Unable to send LOB data',
+                                __FUNCTION__);
                             return $err;
                         }
                     }

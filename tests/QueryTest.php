@@ -101,11 +101,76 @@ class QueryTest extends TestCase
         $this->assertCount(5, $this->db->queryCol('SELECT id FROM mdb2_users'));
     }
 
-    public function testSetLimitKeepsExistingLimitClause()
+    /**
+     * @dataProvider existingLimitProvider
+     */
+    public function testSetLimitKeepsExistingLimitClause($where)
     {
         $this->populateUsers(5);
         $this->assertNotError($this->db->setLimit(2));
-        $this->assertCount(3, $this->db->queryCol('SELECT id FROM mdb2_users ORDER BY id LIMIT 3'));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users'.$this->buildWhere($where).' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function existingLimitProvider()
+    {
+        return array(
+            'no literal' => array(null),
+            'quote in literal' => array(array('quote', "it's")),
+            'backslash in literal' => array(array('quote', 'C:\\')),
+        );
+    }
+
+    public function testSetLimitKeepsExistingLimitClauseAfterDoubleQuotedString()
+    {
+        // MySQL accepts double quoted strings unless ANSI_QUOTES is set
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> "it\'s" ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function testSetLimitKeepsExistingLimitClauseWithNoBackslashEscapes()
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->exec("SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')"));
+        $this->assertNotError($this->db->setLimit(2));
+        // without backslash escapes 'C:\' is a complete literal
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            "SELECT id FROM mdb2_users WHERE name <> 'C:\\' ORDER BY id LIMIT 3"
+        )));
+    }
+
+    public function testSetLimitIgnoresLimitInCommentAndIdentifier()
+    {
+        $this->populateUsers(5);
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users /* LIMIT 1 */'
+        )));
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users '.$this->db->quoteIdentifier('LIMIT 1')
+        )));
+    }
+
+    /**
+     * @param array|null $where array('quote', value) for name <> value
+     * @return string
+     */
+    private function buildWhere($where)
+    {
+        if (null === $where) {
+            return '';
+        }
+
+        return ' WHERE name <> '.$this->db->quote($where[1], 'text');
     }
 
     /**

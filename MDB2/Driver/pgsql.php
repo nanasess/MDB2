@@ -573,9 +573,13 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function databaseExists($name)
     {
+        $name = $this->escape($name);
+        if (MDB2::isError($name)) {
+            return false;
+        }
         $res = $this->_doConnect($this->dsn['username'],
                                  $this->dsn['password'],
-                                 $this->escape($name),
+                                 $name,
                                  $this->options['persistent']);
         if (!MDB2::isError($res)) {
             return true;
@@ -1535,7 +1539,15 @@ class MDB2_Statement_pgsql extends MDB2_Statement_Common
                     if (is_resource($value)) {
                         $data = '';
                         while (!@feof($value)) {
-                            $data.= @fread($value, $this->db->options['lob_buffer_length']);
+                            $chunk = @fread($value, $this->db->options['lob_buffer_length']);
+                            if (false === $chunk) {
+                                if ($close) {
+                                    @fclose($value);
+                                }
+                                return $this->db->raiseError(MDB2_ERROR, null, null,
+                                    'Unable to read the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                            }
+                            $data.= $chunk;
                         }
                         if ($close) {
                             @fclose($value);
