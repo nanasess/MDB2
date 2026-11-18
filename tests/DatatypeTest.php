@@ -65,6 +65,239 @@ class DatatypeTest extends TestCase
         );
     }
 
+    /**
+     * @dataProvider invalidNumberProvider
+     */
+    public function testQuoteRejectsInvalidNumber($type, $value)
+    {
+        $this->assertMDB2Error(MDB2_ERROR_INVALID_NUMBER, $this->db->quote($value, $type));
+    }
+
+    public function invalidNumberProvider()
+    {
+        return array(
+            'decimal expression' => array('decimal', '1-1'),
+            'decimal with comment' => array('decimal', '1--'),
+            'decimal without digits' => array('decimal', 'abc'),
+            'float expression' => array('float', '1-1'),
+            'float mantissa' => array('float', '1-1e+5'),
+        );
+    }
+
+    /**
+     * @dataProvider validNumberProvider
+     */
+    public function testQuoteValidNumber($type, $value, $expected)
+    {
+        $this->assertSame($expected, (string) $this->assertNotError($this->db->quote($value, $type)));
+    }
+
+    public function validNumberProvider()
+    {
+        return array(
+            'decimal negative' => array('decimal', '-12.5', '-12.5'),
+            'decimal leading dot' => array('decimal', '.5', '.5'),
+            'decimal comma' => array('decimal', '1000,5', '1000.5'),
+            'decimal php float' => array('decimal', 1.5, '1.5'),
+            'decimal exponent' => array('decimal', '1.5e3', '1.5e3'),
+            'float exponent' => array('float', '1.5e+20', '1.5E+20'),
+            'float negative exponent' => array('float', '-2E-5', '-2E-05'),
+        );
+    }
+
+    public function testMatchPatternWithQuote()
+    {
+        $this->populateUsers(2);
+        $this->db->exec("UPDATE mdb2_users SET name = 'O''Reilly Media' WHERE id = 1");
+        $pattern = $this->assertNotError(
+            $this->db->datatype->matchPattern(array("O'Reilly", '%'), 'LIKE', 'name')
+        );
+        $this->assertSame(
+            array(1),
+            $this->db->queryCol('SELECT id FROM mdb2_users WHERE '.$pattern, 'integer')
+        );
+    }
+
+    public function testMatchPatternWithBackslash()
+    {
+        $this->populateUsers(2);
+        $this->assertSame(1, $this->db->exec(
+            'UPDATE mdb2_users SET name = '.$this->db->quote('C:\\dir\\file').' WHERE id = 1'
+        ));
+        $pattern = $this->assertNotError(
+            $this->db->datatype->matchPattern(array('C:\\dir\\', '%'), 'LIKE', 'name')
+        );
+        $this->assertSame(
+            array(1),
+            $this->db->queryCol('SELECT id FROM mdb2_users WHERE '.$pattern, 'integer')
+        );
+    }
+
+    public function testMatchPatternEscapesWildcards()
+    {
+        // SQLite has no escape character for LIKE
+        $this->requireDriver('pgsql', 'mysqli');
+        $this->populateUsers(2);
+        $this->db->exec("UPDATE mdb2_users SET name = '100%' WHERE id = 1");
+        $this->db->exec("UPDATE mdb2_users SET name = '1000' WHERE id = 2");
+        $pattern = $this->assertNotError(
+            $this->db->datatype->matchPattern(array('100%'), 'LIKE', 'name')
+        );
+        $this->assertSame(
+            array(1),
+            $this->db->queryCol('SELECT id FROM mdb2_users WHERE '.$pattern, 'integer')
+        );
+    }
+
+    /**
+     * @dataProvider lobTypeProvider
+     */
+    public function testLobUrlIsNotReadByDefault($type)
+    {
+        $this->assertFalse($this->db->getOption('lob_allow_url_include'));
+        $url = 'file://'.$this->createTempFile('file contents');
+
+        $this->populateUsers(1);
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ? WHERE id = 1', array($type), MDB2_PREPARE_MANIP
+        ));
+        $this->assertSame(1, $this->assertNotError($stmt->execute(array($url))));
+        $stmt->free();
+        $this->assertLobNotRead($this->db->queryOne('SELECT note FROM mdb2_users WHERE id = 1'));
+
+        $stmt = $this->assertNotError($this->db->prepare(
+            'SELECT ? AS v', array($type), array('text')
+        ));
+        $result = $this->assertNotError($stmt->execute(array($url)));
+        $this->assertLobNotRead($result->fetchOne());
+        $result->free();
+        $stmt->free();
+    }
+
+    public function lobTypeProvider()
+    {
+        return array(
+            'clob' => array('clob'),
+            'blob' => array('blob'),
+        );
+    }
+
+    public function testLobUrlIsReadWhenAllowed()
+    {
+        $this->db->setOption('lob_allow_url_include', true);
+        $url = 'file://'.$this->createTempFile('file contents');
+
+        $this->populateUsers(1);
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ? WHERE id = 1', array('clob'), MDB2_PREPARE_MANIP
+        ));
+        $this->assertSame(1, $this->assertNotError($stmt->execute(array($url))));
+        $stmt->free();
+        $this->assertSame('file contents', $this->db->queryOne('SELECT note FROM mdb2_users WHERE id = 1'));
+    }
+
+    public function testLobFromResource()
+    {
+        $this->populateUsers(1);
+        $fp = fopen($this->createTempFile('stream contents'), 'r');
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ? WHERE id = 1', array('clob'), MDB2_PREPARE_MANIP
+        ));
+        $this->assertSame(1, $this->assertNotError($stmt->execute(array($fp))));
+        $stmt->free();
+        fclose($fp);
+        $this->assertSame('stream contents', $this->db->queryOne('SELECT note FROM mdb2_users WHERE id = 1'));
+    }
+
+    public function testLobReadError()
+    {
+        $this->populateUsers(1);
+        // a write-only stream cannot be read
+        $fp = fopen($this->createTempFile(''), 'w');
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ? WHERE id = 1', array('clob'), MDB2_PREPARE_MANIP
+        ));
+        $this->assertTrue(\MDB2::isError($stmt->execute(array($fp))));
+        $stmt->free();
+        fclose($fp);
+    }
+
+    public function testLobErrorDoesNotLeaveDataForNextExecute()
+    {
+        $this->requireDriver('pgsql', 'mysqli');
+        $this->db->setOption('lob_allow_url_include', true);
+        $this->populateUsers(1);
+        $stmt = $this->assertNotError($this->db->prepare(
+            'UPDATE mdb2_users SET note = ?, email = ? WHERE id = 1',
+            array('clob', 'clob'),
+            MDB2_PREPARE_MANIP
+        ));
+        $missing = 'file://'.sys_get_temp_dir().'/mdb2-missing-'.uniqid();
+        $this->assertMDB2Error(MDB2_ERROR_NOT_FOUND, $stmt->execute(array('first', $missing)));
+        $this->assertSame(1, $this->assertNotError($stmt->execute(array('first', 'second@example.com'))));
+        $stmt->free();
+        $this->assertSame(
+            array('note' => 'first', 'email' => 'second@example.com'),
+            $this->db->queryRow('SELECT note, email FROM mdb2_users WHERE id = 1')
+        );
+    }
+
+    public function testNulByte()
+    {
+        $value = "before\0after";
+        $quoted = $this->db->quote($value, 'text');
+        if ($this->db->phptype === 'mysqli') {
+            $this->assertSame($value, $this->db->queryOne('SELECT '.$this->assertNotError($quoted)));
+        } else {
+            // the escaping function would cut the value at the NUL byte
+            $this->assertMDB2Error(MDB2_ERROR_INVALID, $quoted);
+            $this->assertMDB2Error(MDB2_ERROR_INVALID, $this->db->quote($value, 'text', true, true));
+        }
+    }
+
+    public function testDatabaseExistsWithNulByte()
+    {
+        $this->requireDriver('pgsql');
+        $this->assertFalse($this->db->databaseExists("mdb2\0test"));
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private function assertLobNotRead($value)
+    {
+        $value = (string) $this->readClob($value);
+        $this->assertStringNotContainsString('file contents', $value);
+        $this->assertStringNotContainsString(bin2hex('file contents'), $value);
+    }
+
+    /**
+     * @var array
+     */
+    private $tempFiles = array();
+
+    /**
+     * @param string $contents
+     * @return string path of a file that is removed after the test
+     */
+    private function createTempFile($contents)
+    {
+        $file = tempnam(sys_get_temp_dir(), 'mdb2');
+        file_put_contents($file, $contents);
+        $this->tempFiles[] = $file;
+
+        return $file;
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempFiles as $file) {
+            @unlink($file);
+        }
+        $this->tempFiles = array();
+        parent::tearDown();
+    }
+
     public function testQuoteBoolean()
     {
         $true = (string) $this->db->quote(true, 'boolean');

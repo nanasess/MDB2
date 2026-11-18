@@ -1175,6 +1175,9 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
                 'type not defined: '.$type, __FUNCTION__);
         }
         $value = $this->{"_quote{$type}"}($value, $quote, $escape_wildcards);
+        if (MDB2::isError($value)) {
+            return $value;
+        }
         if ($quote && $escape_wildcards && $db->string_quoting['escape_pattern']
             && $db->string_quoting['escape'] !== $db->string_quoting['escape_pattern']
         ) {
@@ -1249,7 +1252,7 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
     function _readFile($value)
     {
         $close = false;
-        if (preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
+        if (!is_resource($value) && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
             $close = true;
             if (strtolower($match[1]) == 'file://') {
                 $value = $match[2];
@@ -1266,7 +1269,15 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
             $fp = $value;
             $value = '';
             while (!@feof($fp)) {
-                $value.= @fread($fp, $db->options['lob_buffer_length']);
+                $chunk = @fread($fp, $db->options['lob_buffer_length']);
+                if (false === $chunk) {
+                    if ($close) {
+                        @fclose($fp);
+                    }
+                    return $db->raiseError(MDB2_ERROR, null, null,
+                        'Unable to read the LOB source', __FUNCTION__);
+                }
+                $value.= $chunk;
             }
             if ($close) {
                 @fclose($fp);
@@ -1296,7 +1307,8 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
         if (MDB2::isError($db)) {
             return $db;
         }
-        if ($db->options['lob_allow_url_include']) {
+        // streams are always read, URLs only when the option is enabled
+        if (is_resource($value) || $db->options['lob_allow_url_include']) {
             $value = $this->_readFile($value);
             if (MDB2::isError($value)) {
                 return $value;
@@ -1467,6 +1479,9 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
     {
         if (preg_match('/^(.*)e([-+])(\d+)$/i', $value, $matches)) {
             $decimal = $this->_quoteDecimal($matches[1], $quote, $escape_wildcards);
+            if (MDB2::isError($decimal)) {
+                return $decimal;
+            }
             $sign = $matches[2];
             $exponent = str_pad($matches[3], 2, '0', STR_PAD_LEFT);
             $value = $decimal.'E'.$sign.$exponent;
@@ -1510,6 +1525,16 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
                     $value = str_replace(',', '', $value);
                 }
             }
+        }
+        // the value is not quoted, so anything but a number (e.g. "1--")
+        // would change the meaning of the query
+        if (!preg_match('/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/', $value)) {
+            $db = $this->getDBInstance();
+            if (MDB2::isError($db)) {
+                return $db;
+            }
+            return $db->raiseError(MDB2_ERROR_INVALID_NUMBER, null, null,
+                'not a valid number: '.$value, __FUNCTION__);
         }
         return $value;
     }
@@ -1734,11 +1759,14 @@ class MDB2_Driver_Datatype_Common extends MDB2_Module_Common
             if ($key % 2) {
                 $match.= $value;
             } else {
-                $escaped = $db->escape($value);
+                // escape the LIKE wildcards first and the string last, so
+                // the escape characters added for the string are not
+                // escaped again (that would end the string literal)
+                $escaped = $db->escape($db->escapePattern($value));
                 if (MDB2::isError($escaped)) {
                     return $escaped;
                 }
-                $match.= $db->escapePattern($escaped);
+                $match.= $escaped;
             }
         }
         $match.= "'";

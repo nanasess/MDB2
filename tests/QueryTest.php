@@ -102,6 +102,217 @@ class QueryTest extends TestCase
     }
 
     /**
+     * @dataProvider existingLimitProvider
+     */
+    public function testSetLimitKeepsExistingLimitClause($where)
+    {
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users'.$this->buildWhere($where).' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function existingLimitProvider()
+    {
+        return array(
+            'no literal' => array(null),
+            'quote in literal' => array(array('quote', "it's")),
+            'backslash in literal' => array(array('quote', 'C:\\')),
+        );
+    }
+
+    public function testSetLimitKeepsExistingLimitClauseAfterDoubleQuotedString()
+    {
+        // MySQL accepts double quoted strings unless ANSI_QUOTES is set
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> "it\'s" ORDER BY id LIMIT 3'
+        )));
+    }
+
+    /**
+     * @dataProvider sqliteIdentifierProvider
+     */
+    public function testSetLimitKeepsExistingLimitClauseAfterSqliteIdentifier($alias)
+    {
+        $this->requireDriver('sqlite3');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users AS '.$alias.' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function sqliteIdentifierProvider()
+    {
+        return array(
+            'brackets' => array("[it's]"),
+            'backticks' => array("`it's`"),
+        );
+    }
+
+    /**
+     * @dataProvider dollarQuotedStringProvider
+     */
+    public function testSetLimitKeepsExistingLimitClauseAfterDollarQuotedString($literal)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> '.$literal.' ORDER BY id LIMIT 3'
+        )));
+    }
+
+    public function dollarQuotedStringProvider()
+    {
+        return array(
+            'without tag' => array("\$\$it's\$\$"),
+            'with tag' => array("\$t\$it's \$\$ LIMIT 1\$t\$"),
+        );
+    }
+
+    public function testSetLimitKeepsExistingLimitClauseAfterIdentifierWithDollarSign()
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users AS foo$tag$ ORDER BY id LIMIT 3'
+        )));
+    }
+
+    /**
+     * @dataProvider trailingClauseInLiteralProvider
+     */
+    public function testSetLimitWithTrailingClauseInLiteral($value)
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertSame(1, $this->db->exec(
+            'UPDATE mdb2_users SET name = '.$this->db->quote($value, 'text').' WHERE id = 1'
+        ));
+        $this->assertNotError($this->db->setLimit(2));
+        // the literal ends the query, so the clause in it is at the end
+        $ids = $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> "'.$value.'"', 'integer'
+        ));
+        $this->assertCount(2, $ids);
+        $this->assertNotContains(1, $ids);
+    }
+
+    public function trailingClauseInLiteralProvider()
+    {
+        return array(
+            'into outfile' => array(' INTO OUTFILE LIMIT 1'),
+            'for update' => array('x FOR UPDATE'),
+            'lock in share mode' => array('x LOCK IN SHARE MODE'),
+        );
+    }
+
+    public function testSetLimitWithTrailingClause()
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->beginTransaction());
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(array(1, 2), $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users ORDER BY id FOR UPDATE', 'integer'
+        )));
+        $this->assertNotError($this->db->rollback());
+    }
+
+    public function testSetLimitIgnoresLimitInDollarQuotedString()
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> $$LIMIT 1$$'
+        )));
+    }
+
+    public function testSetLimitKeepsExistingLimitClauseWithNoBackslashEscapes()
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->exec("SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')"));
+        $this->assertNotError($this->db->setLimit(2));
+        // without backslash escapes 'C:\' is a complete literal
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            "SELECT id FROM mdb2_users WHERE name <> 'C:\\' ORDER BY id LIMIT 3"
+        )));
+    }
+
+    public function testSetLimitIgnoresLimitInCommentAndIdentifier()
+    {
+        $this->populateUsers(5);
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users /* LIMIT 1 */'
+        )));
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users '.$this->db->quoteIdentifier('LIMIT 1')
+        )));
+    }
+
+    /**
+     * @param array|null $where array('quote', value) for name <> value
+     * @return string
+     */
+    private function buildWhere($where)
+    {
+        if (null === $where) {
+            return '';
+        }
+
+        return ' WHERE name <> '.$this->db->quote($where[1], 'text');
+    }
+
+    /**
+     * @dataProvider limitLikeValueProvider
+     */
+    public function testSetLimitWithLimitLikeValue($value)
+    {
+        $this->populateUsers(5);
+
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(2, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> '.$this->db->quote($value, 'text')
+        )));
+
+        $this->assertNotError($this->db->setLimit(2));
+        $stmt = $this->assertNotError($this->db->prepare('SELECT id FROM mdb2_users WHERE name <> ?'));
+        $result = $this->assertNotError($stmt->execute(array($value)));
+        $this->assertCount(2, $result->fetchCol());
+        $result->free();
+        $stmt->free();
+
+        $this->assertNotError($this->db->setOption('emulate_prepared', true));
+        $this->assertNotError($this->db->setLimit(2));
+        $stmt = $this->assertNotError($this->db->prepare('SELECT id FROM mdb2_users WHERE name <> ?'));
+        $result = $this->assertNotError($stmt->execute(array($value)));
+        $this->assertCount(2, $result->fetchCol());
+        $result->free();
+        $stmt->free();
+    }
+
+    public function limitLikeValueProvider()
+    {
+        return array(
+            'limit' => array('LIMIT 1'),
+            'quote before limit' => array("it's LIMIT 1"),
+            'backslash before limit' => array('C:\\ LIMIT 1'),
+        );
+    }
+
+    /**
      * @dataProvider quoteProvider
      */
     public function testQuoteRoundTrip($value)

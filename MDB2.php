@@ -324,6 +324,11 @@ class MDB2
      */
     static function loadClass($class_name, $debug)
     {
+        // the class name becomes a file path, e.g. from the phptype of a DSN
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $class_name)) {
+            return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                'invalid class name: '.$class_name);
+        }
         if (!MDB2::classExists($class_name)) {
             $file_name = str_replace('_', DIRECTORY_SEPARATOR, $class_name).'.php';
             if ($debug) {
@@ -512,6 +517,11 @@ class MDB2
      */
     static function loadFile($file)
     {
+        // no '.' so the path cannot leave the MDB2 directory
+        if (!preg_match('/^[A-Za-z0-9_\/]+$/', $file)) {
+            return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                'invalid file name: '.$file);
+        }
         $file_name = 'MDB2'.DIRECTORY_SEPARATOR.$file.'.php';
         if (!MDB2::fileExists($file_name)) {
             return MDB2::raiseError(MDB2_ERROR_NOT_FOUND, null, null,
@@ -2486,6 +2496,214 @@ class MDB2_Driver_Common
     function _modifyQuery($query, $is_manip, $limit, $offset)
     {
         return $query;
+    }
+
+    // }}}
+    // {{{ function _hasLimitClause($query)
+
+    /**
+     * Checks if a query already ends with a LIMIT clause
+     *
+     * String literals, delimited identifiers and comments are ignored, so a
+     * value such as 'LIMIT 1' in the query is not mistaken for the clause.
+     *
+     * @param   string  query to check
+     *
+     * @return  bool    true if the query ends with a LIMIT clause
+     *
+     * @access  protected
+     */
+    function _hasLimitClause($query)
+    {
+        return (bool)preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i',
+            $this->_removeLiteralsAndComments($query));
+    }
+
+    // }}}
+    // {{{ function _stringQuoteChars()
+
+    /**
+     * The characters that start (and end) a string literal
+     *
+     * @return  array
+     *
+     * @access  protected
+     */
+    function _stringQuoteChars()
+    {
+        return array($this->string_quoting['start']);
+    }
+
+    // }}}
+    // {{{ function _otherIdentifierQuoting()
+
+    /**
+     * Delimiters of identifiers other than identifier_quoting
+     *
+     * @return  array   list of arrays with the 'start', 'end' and 'escape'
+     *                  keys like identifier_quoting
+     *
+     * @access  protected
+     */
+    function _otherIdentifierQuoting()
+    {
+        return array();
+    }
+
+    // }}}
+    // {{{ function _dollarQuotedStrings()
+
+    /**
+     * Whether $tag$...$tag$ is a string literal
+     *
+     * @return  bool
+     *
+     * @access  protected
+     */
+    function _dollarQuotedStrings()
+    {
+        return false;
+    }
+
+    // }}}
+    // {{{ function _backslashEscapesInStrings()
+
+    /**
+     * Whether a backslash escapes the next character in a string literal
+     *
+     * @return  bool
+     *
+     * @access  protected
+     */
+    function _backslashEscapesInStrings()
+    {
+        return $this->string_quoting['escape'] === '\\';
+    }
+
+    // }}}
+    // {{{ function _removeLiteralsAndComments($query)
+
+    /**
+     * Blanks out string literals, delimited identifiers and comments, so the
+     * structure of a query can be inspected without being misled by the
+     * values in it
+     *
+     * The result has the same length as the query, so a position found in it
+     * is also the position in the query.
+     *
+     * @param   string  query
+     *
+     * @return  string  the query with spaces in place of the contents of
+     *                  string literals (kept between '') and delimited
+     *                  identifiers (kept between their delimiters), and in
+     *                  place of comments
+     *
+     * @access  protected
+     */
+    function _removeLiteralsAndComments($query)
+    {
+        $quote_chars = $this->_stringQuoteChars();
+        $backslash = $this->_backslashEscapesInStrings();
+        $dollar = $this->_dollarQuotedStrings();
+        $ignores = array();
+        $identifiers = $this->_otherIdentifierQuoting();
+        if (!empty($this->identifier_quoting['start'])) {
+            array_unshift($identifiers, $this->identifier_quoting);
+        }
+        foreach ($identifiers as $identifier) {
+            $ignores[] = $identifier + array('replace' => null);
+        }
+        foreach ($this->sql_comments as $comment) {
+            $ignores[] = $comment + array('replace' => true);
+        }
+
+        $result = '';
+        $length = strlen($query);
+        $i = 0;
+        while ($i < $length) {
+            // a $ inside an identifier (e.g. foo$tag$) does not start a literal
+            if ($dollar && $query[$i] === '$'
+                && (0 === $i || !preg_match('/[A-Za-z0-9_$\x80-\xff]/', $query[$i - 1]))
+                && preg_match('/\G\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/', $query, $match, 0, $i)
+            ) {
+                // the literal ends with the same $tag$, there are no escapes
+                $start = $i;
+                $end = strpos($query, $match[0], $i + strlen($match[0]));
+                $i = (false === $end) ? $length : $end + strlen($match[0]);
+                $result.= $this->_blankSpan($i - $start, "'", "'");
+                continue;
+            }
+            $quote = $query[$i];
+            if (in_array($quote, $quote_chars, true)) {
+                $start = $i;
+                // the literal ends with the character that started it
+                for (++$i; $i < $length; ++$i) {
+                    if ($backslash && $query[$i] === '\\') {
+                        ++$i;
+                    } elseif ($query[$i] === $quote) {
+                        if ($i + 1 < $length && $query[$i + 1] === $quote) {
+                            ++$i;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                $i = min($i + 1, $length);
+                $result.= $this->_blankSpan($i - $start, $quote, $quote);
+                continue;
+            }
+            foreach ($ignores as $ignore) {
+                $start_length = strlen($ignore['start']);
+                if (substr($query, $i, $start_length) !== $ignore['start']) {
+                    continue;
+                }
+                $end = $i + $start_length;
+                do {
+                    $end = strpos($query, $ignore['end'], $end);
+                    if (false === $end) {
+                        $end = $length;
+                        break;
+                    }
+                    $end+= strlen($ignore['end']);
+                    // a doubled end delimiter is an escaped one
+                    $escaped = $ignore['escape'] === $ignore['end']
+                        && substr($query, $end, strlen($ignore['end'])) === $ignore['end'];
+                    if ($escaped) {
+                        $end+= strlen($ignore['end']);
+                    }
+                } while ($escaped);
+                $result.= (null === $ignore['replace'])
+                    ? $this->_blankSpan($end - $i, $ignore['start'], $ignore['end'])
+                    : $this->_blankSpan($end - $i);
+                $i = $end;
+                continue 2;
+            }
+            $result.= $query[$i];
+            ++$i;
+        }
+        return $result;
+    }
+
+    // }}}
+    // {{{ function _blankSpan($length, $open = '', $close = '')
+
+    /**
+     * Returns $length characters: $open, spaces and $close
+     *
+     * @param   int     length of the result
+     * @param   string  characters to keep at the start
+     * @param   string  characters to keep at the end
+     *
+     * @return  string
+     *
+     * @access  protected
+     */
+    function _blankSpan($length, $open = '', $close = '')
+    {
+        if ($length < strlen($open) + strlen($close)) {
+            return str_repeat(' ', $length);
+        }
+        return $open.str_repeat(' ', $length - strlen($open) - strlen($close)).$close;
     }
 
     // }}}

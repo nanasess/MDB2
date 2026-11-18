@@ -42,6 +42,31 @@ class ConnectionTest extends TestCase
         $db->disconnect();
     }
 
+    /**
+     * @dataProvider invalidPhptypeProvider
+     */
+    public function testFactoryRejectsInvalidPhptype($dsn)
+    {
+        $db = MDB2::factory($dsn);
+        $this->assertTrue(MDB2::isError($db));
+        $this->assertSame(MDB2_ERROR_NOT_FOUND, $db->getCode());
+        $this->assertStringContainsString('invalid class name', $db->getUserInfo());
+    }
+
+    public function invalidPhptypeProvider()
+    {
+        return array(
+            'string' => array('../Driver/pgsql://user:pass@localhost/db'),
+            'array' => array(array('phptype' => '../Driver/pgsql', 'database' => 'db')),
+        );
+    }
+
+    public function testLoadFileRejectsInvalidName()
+    {
+        $this->assertMDB2Error(MDB2_ERROR_NOT_FOUND, MDB2::loadFile('../MDB2'));
+        $this->assertSame('MDB2'.DIRECTORY_SEPARATOR.'Date.php', MDB2::loadFile('Date'));
+    }
+
     public function testConnectFailure()
     {
         $this->requireDriver('pgsql', 'mysqli');

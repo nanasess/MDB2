@@ -176,6 +176,11 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
      */
     function escape($text, $escape_wildcards = false)
     {
+        // the escaping function stops at a NUL byte and drops the rest
+        if (false !== strpos((string)$text, "\0")) {
+            return $this->raiseError(MDB2_ERROR_INVALID, null, null,
+                'a string containing a NUL byte cannot be quoted', __FUNCTION__);
+        }
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
@@ -566,6 +571,25 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _otherIdentifierQuoting()
+
+    /**
+     * Delimiters of identifiers other than identifier_quoting
+     *
+     * SQLite also accepts [identifier] and `identifier`.
+     *
+     * @return array
+     * @access protected
+     */
+    function _otherIdentifierQuoting()
+    {
+        return array(
+            array('start' => '[', 'end' => ']', 'escape' => false),
+            array('start' => '`', 'end' => '`', 'escape' => '`'),
+        );
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
@@ -587,7 +611,7 @@ class MDB2_Driver_sqlite3 extends MDB2_Driver_Common
             }
         }
         if ($limit > 0
-            && !preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i', $query)
+            && !$this->_hasLimitClause($query)
         ) {
             $query = rtrim($query);
             if (substr($query, -1) == ';') {

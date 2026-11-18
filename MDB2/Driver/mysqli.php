@@ -883,6 +883,44 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _stringQuoteChars()
+
+    /**
+     * The characters that start (and end) a string literal
+     *
+     * MySQL also accepts double quoted strings unless ANSI_QUOTES is set.
+     *
+     * @return array
+     * @access protected
+     */
+    function _stringQuoteChars()
+    {
+        return array("'", '"');
+    }
+
+    // }}}
+    // {{{ _backslashEscapesInStrings()
+
+    /**
+     * Whether a backslash escapes the next character in a string literal
+     *
+     * It does not when the NO_BACKSLASH_ESCAPES SQL mode is set.
+     * mysqli_real_escape_string() follows the SQL mode of the connection,
+     * so it shows which one is in effect.
+     *
+     * @return bool
+     * @access protected
+     */
+    function _backslashEscapesInStrings()
+    {
+        $connection = $this->getConnection();
+        if (MDB2::isError($connection)) {
+            return true;
+        }
+        return @mysqli_real_escape_string($connection, '\\') === '\\\\';
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
@@ -906,7 +944,7 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             }
         }
         if ($limit > 0
-            && !preg_match('/LIMIT\s*\d(?:\s*(?:,|OFFSET)\s*\d+)?(?:[^\)]*)?$/i', $query)
+            && !$this->_hasLimitClause($query)
         ) {
             $query = rtrim($query);
             if (substr($query, -1) == ';') {
@@ -916,15 +954,19 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             // LIMIT doesn't always come last in the query
             // @see http://dev.mysql.com/doc/refman/5.0/en/select.html
             $after = '';
-            if (preg_match('/(\s+INTO\s+(?:OUT|DUMP)FILE\s.*)$/ims', $query, $matches)) {
-                $after = $matches[0];
-                $query = preg_replace('/(\s+INTO\s+(?:OUT|DUMP)FILE\s.*)$/ims', '', $query);
-            } elseif (preg_match('/(\s+FOR\s+UPDATE\s*)$/i', $query, $matches)) {
-               $after = $matches[0];
-               $query = preg_replace('/(\s+FOR\s+UPDATE\s*)$/im', '', $query);
-            } elseif (preg_match('/(\s+LOCK\s+IN\s+SHARE\s+MODE\s*)$/im', $query, $matches)) {
-               $after = $matches[0];
-               $query = preg_replace('/(\s+LOCK\s+IN\s+SHARE\s+MODE\s*)$/im', '', $query);
+            // look for the clauses outside literals and comments
+            $blanked = $this->_removeLiteralsAndComments($query);
+            $patterns = array(
+                '/\s+INTO\s+(?:OUT|DUMP)FILE\s.*$/is',
+                '/\s+FOR\s+UPDATE\s*$/i',
+                '/\s+LOCK\s+IN\s+SHARE\s+MODE\s*$/i',
+            );
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $blanked, $matches, PREG_OFFSET_CAPTURE)) {
+                    $after = substr($query, $matches[0][1]);
+                    $query = substr($query, 0, $matches[0][1]);
+                    break;
+                }
             }
 
             if ($is_manip) {
@@ -1770,18 +1812,34 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                 $value = $this->values[$parameter];
                 $type = array_key_exists($parameter, $this->types) ? $this->types[$parameter] : null;
                 if (!is_object($this->statement)) {
-                    if (is_resource($value) || $type == 'clob' || $type == 'blob' && $this->db->options['lob_allow_url_include']) {
+                    $close = false;
+                    // URLs are only read when the lob_allow_url_include option is enabled
+                    if (is_resource($value)
+                        || (($type == 'clob' || $type == 'blob') && $this->db->options['lob_allow_url_include'])
+                    ) {
                         if (!is_resource($value) && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
                             if ($match[1] == 'file://') {
                                 $value = $match[2];
                             }
                             $value = @fopen($value, 'r');
+                            if (!is_resource($value)) {
+                                return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                                    'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                            }
                             $close = true;
                         }
                         if (is_resource($value)) {
                             $data = '';
                             while (!@feof($value)) {
-                                $data.= @fread($value, $this->db->options['lob_buffer_length']);
+                                $chunk = @fread($value, $this->db->options['lob_buffer_length']);
+                                if (false === $chunk) {
+                                    if ($close) {
+                                        @fclose($value);
+                                    }
+                                    return $this->db->raiseError(MDB2_ERROR, null, null,
+                                        'Unable to read the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                                }
+                                $data.= $chunk;
                             }
                             if ($close) {
                                 @fclose($value);
@@ -1833,11 +1891,20 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     $close = false;
                     if (!is_resource($value)) {
                         $close = true;
-                        if (preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)) {
+                        // URLs are only read when the lob_allow_url_include option is enabled
+                        if ($this->db->options['lob_allow_url_include']
+                            && preg_match('/^(\w+:\/\/)(.*)$/', $value, $match)
+                        ) {
                             if ($match[1] == 'file://') {
                                 $value = $match[2];
                             }
                             $value = @fopen($value, 'r');
+                            if (!is_resource($value)) {
+                                // discard the long data sent for the previous LOBs
+                                $this->db->_mysqli('mysqli_stmt_reset', $this->statement);
+                                return $this->db->raiseError(MDB2_ERROR_NOT_FOUND, null, null,
+                                    'Unable to open the LOB source for placeholder: '.$parameter, __FUNCTION__);
+                            }
                         } else {
                             $fp = @tmpfile();
                             @fwrite($fp, $value);
@@ -1847,12 +1914,17 @@ class MDB2_Statement_mysqli extends MDB2_Statement_Common
                     }
                     while (!@feof($value)) {
                         $data = @fread($value, $this->db->options['lob_buffer_length']);
-                        if (!$this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data)) {
+                        if (false === $data
+                            || !$this->db->_mysqli('mysqli_stmt_send_long_data', $this->statement, $i, $data)
+                        ) {
                             if ($close) {
                                 @fclose($value);
                             }
+                            // discard the long data sent so far
+                            $this->db->_mysqli('mysqli_stmt_reset', $this->statement);
                             $err = $this->db->raiseError(null, null, null,
-                                'Unable to send LOB data', __FUNCTION__);
+                                false === $data ? 'Unable to read the LOB source' : 'Unable to send LOB data',
+                                __FUNCTION__);
                             return $err;
                         }
                     }

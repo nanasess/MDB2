@@ -250,7 +250,8 @@ class MDB2_Driver_Datatype_pgsql extends MDB2_Driver_Datatype_Common
         if (MDB2::isError($db)) {
             return $db;
         }
-        if ($db->options['lob_allow_url_include']) {
+        // streams are always read, URLs only when the option is enabled
+        if (is_resource($value) || $db->options['lob_allow_url_include']) {
             $value = $this->_readFile($value);
             if (MDB2::isError($value)) {
                 return $value;
@@ -282,7 +283,8 @@ class MDB2_Driver_Datatype_pgsql extends MDB2_Driver_Datatype_Common
         if (MDB2::isError($db)) {
             return $db;
         }
-        if ($db->options['lob_allow_url_include']) {
+        // streams are always read, URLs only when the option is enabled
+        if (is_resource($value) || $db->options['lob_allow_url_include']) {
             $value = $this->_readFile($value);
             if (MDB2::isError($value)) {
                 return $value;
@@ -374,7 +376,14 @@ class MDB2_Driver_Datatype_pgsql extends MDB2_Driver_Datatype_Common
             if ($key % 2) {
                 $match.= $value;
             } else {
-                $match.= $db->escapePattern($db->escape($value));
+                // escape the LIKE wildcards first and the string last, so
+                // the escape characters added for the string are not
+                // escaped again (that would end the string literal)
+                $escaped = $db->escape($db->escapePattern($value));
+                if (MDB2::isError($escaped)) {
+                    return $escaped;
+                }
+                $match.= $escaped;
             }
         }
         $match.= "'";
