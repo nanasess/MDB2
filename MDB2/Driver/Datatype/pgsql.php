@@ -493,6 +493,7 @@ class MDB2_Driver_Datatype_pgsql extends MDB2_Driver_Datatype_Common
             $length = null;
             break;
         case 'time':
+        case 'timetz':
             $type[] = 'time';
             $length = null;
             break;

@@ -71,6 +71,31 @@ class ReverseTest extends TestCase
         $this->assertSame('float', $definition[0]['mdb2type']);
     }
 
+    /**
+     * TIMETZ columns were reported as an unsupported type (#17).
+     */
+    public function testPgsqlTimetzColumn()
+    {
+        $this->requireDriver('pgsql');
+        $this->assertNotError($this->db->exec('DROP TABLE IF EXISTS mdb2_timetz_test'));
+        $this->assertNotError($this->db->exec('CREATE TABLE mdb2_timetz_test (id INTEGER NOT NULL, t TIMETZ, ts TIMESTAMPTZ)'));
+        try {
+            $definition = $this->assertNotError($this->db->reverse->getTableFieldDefinition('mdb2_timetz_test', 't'));
+            $this->assertSame('time', $definition[0]['mdb2type']);
+
+            $info = $this->assertNotError($this->db->reverse->tableInfo('mdb2_timetz_test'));
+            $this->assertSame(array('integer', 'time', 'timestamp'), array_column($info, 'mdb2type'));
+
+            $this->assertNotError($this->db->exec("INSERT INTO mdb2_timetz_test (id, t) VALUES (1, '10:30:00+09')"));
+            // the offset is kept as long as no type conversion is requested
+            $this->assertSame('10:30:00+09', $this->db->queryOne('SELECT t FROM mdb2_timetz_test'));
+            // converting as MDB2 "time" drops it, the same as timestamptz
+            $this->assertSame('10:30:00', $this->db->queryOne('SELECT t FROM mdb2_timetz_test', 'time'));
+        } finally {
+            $this->assertNotError($this->db->exec('DROP TABLE mdb2_timetz_test'));
+        }
+    }
+
     public function testDecimalLength()
     {
         // the reverse module reports DECIMAL(p,s) as length "p,s"
