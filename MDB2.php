@@ -1250,6 +1250,16 @@ class MDB2_Driver_Common
     );
 
     /**
+     * the connection a query is going to be sent to, when it is not the
+     * one in $connection (e.g. the DBA connection of standaloneQuery())
+     *
+     * @var     mixed
+     * @access  protected
+     * @see     _scanConnection()
+     */
+    protected $scan_connection = null;
+
+    /**
      * comparision wildcards
      * @var     array
      * @access  protected
@@ -2458,12 +2468,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
 
         $result = $this->_doQuery($query, $is_manip, $connection, false);
         if (MDB2::isError($result)) {
@@ -2581,6 +2592,153 @@ class MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ function _scanConnection()
+
+    /**
+     * The connection a query is going to be sent to, for reading the query
+     * in its character set
+     *
+     * It does not connect, the callers of _modifyQuery() connect first.
+     *
+     * @return  mixed   the native connection, or null if there is none
+     *
+     * @access  protected
+     */
+    function _scanConnection()
+    {
+        $connection = (null !== $this->scan_connection)
+            ? $this->scan_connection : $this->connection;
+        return (is_object($connection) || is_resource($connection)) ? $connection : null;
+    }
+
+    // }}}
+    // {{{ function _connectionCharset()
+
+    /**
+     * The character set the connection sends the queries in
+     *
+     * @return  string|null  the name used by the DBMS, or null if unknown
+     *
+     * @access  protected
+     */
+    function _connectionCharset()
+    {
+        return null;
+    }
+
+    // }}}
+    // {{{ function _multibyteCharPattern()
+
+    /**
+     * A pattern that matches one multibyte character of the connection
+     * character set, for the character sets in which a byte after the first
+     * one can be an ASCII character such as a backslash or a backtick
+     *
+     * Such a byte is part of the character and must not be taken for the
+     * ASCII character, e.g. the second byte of 0x95 0x5C in Shift_JIS is not
+     * a backslash that escapes the next character.
+     *
+     * @return  string|null  the pattern, or null if every byte of a multibyte
+     *                       character is 0x80 or more (e.g. UTF-8, EUC-JP)
+     *
+     * @access  protected
+     */
+    function _multibyteCharPattern()
+    {
+        $charset = $this->_connectionCharset();
+        if (!is_string($charset)) {
+            return null;
+        }
+        // the first and the following bytes that the DBMS and its client
+        // library (which escapes the strings) take as one character
+        switch (strtolower($charset)) {
+        case 'sjis':
+        case 'cp932':
+        case 'shift_jis_2004':
+            return '/\G[\x81-\x9f\xe0-\xfc][\x40-\x7e\x80-\xfc]/';
+        case 'big5':
+            return '/\G[\xa1-\xf9][\x40-\x7e\xa1-\xfe]/';
+        case 'gbk':
+            return '/\G[\x81-\xfe][\x40-\x7e\x80-\xfe]/';
+        case 'gb18030':
+            return '/\G[\x81-\xfe](?:[\x40-\x7e\x80-\xfe]|[\x30-\x39][\x81-\xfe][\x30-\x39])/';
+        case 'uhc':
+            return '/\G[\x81-\xfe][\x41-\x5a\x61-\x7a\x81-\xfe]/';
+        }
+        return null;
+    }
+
+    // }}}
+    // {{{ function _backslashEscapesByte()
+
+    /**
+     * Whether a backslash in a string literal escapes the next byte rather
+     * than the next character, when that is a multibyte character
+     *
+     * @return  bool
+     *
+     * @access  protected
+     */
+    function _backslashEscapesByte()
+    {
+        return false;
+    }
+
+    // }}}
+    // {{{ function _charLength($query, $i, $multibyte)
+
+    /**
+     * The length in bytes of the character at a position
+     *
+     * @param   string  query
+     * @param   int     position
+     * @param   string|null  pattern from _multibyteCharPattern()
+     *
+     * @return  int     1 unless there is a multibyte character
+     *
+     * @access  protected
+     */
+    function _charLength($query, $i, $multibyte)
+    {
+        if (null !== $multibyte && ord($query[$i]) >= 0x80
+            && preg_match($multibyte, $query, $match, 0, $i)
+        ) {
+            return strlen($match[0]);
+        }
+        return 1;
+    }
+
+    // }}}
+    // {{{ function _findDelimiter($query, $delimiter, $offset, $multibyte)
+
+    /**
+     * Finds a delimiter that is not a part of a multibyte character
+     *
+     * @param   string  query
+     * @param   string  delimiter
+     * @param   int     position to start at
+     * @param   string|null  pattern from _multibyteCharPattern()
+     *
+     * @return  int|bool  the position, or false if it is not found
+     *
+     * @access  protected
+     */
+    function _findDelimiter($query, $delimiter, $offset, $multibyte)
+    {
+        if (null === $multibyte) {
+            return strpos($query, $delimiter, $offset);
+        }
+        $length = strlen($query);
+        while ($offset < $length) {
+            if (substr($query, $offset, strlen($delimiter)) === $delimiter) {
+                return $offset;
+            }
+            $offset+= $this->_charLength($query, $offset, $multibyte);
+        }
+        return false;
+    }
+
+    // }}}
     // {{{ function _removeLiteralsAndComments($query)
 
     /**
@@ -2589,7 +2747,10 @@ class MDB2_Driver_Common
      * values in it
      *
      * The result has the same length as the query, so a position found in it
-     * is also the position in the query.
+     * is also the position in the query. The query is read character by
+     * character in the character set of the connection, and the multibyte
+     * characters left in the result are replaced with 0x80 bytes, so none of
+     * their bytes is taken for an ASCII character.
      *
      * @param   string  query
      *
@@ -2605,6 +2766,8 @@ class MDB2_Driver_Common
         $quote_chars = $this->_stringQuoteChars();
         $backslash = $this->_backslashEscapesInStrings();
         $dollar = $this->_dollarQuotedStrings();
+        $multibyte = $this->_multibyteCharPattern();
+        $escapes_byte = $this->_backslashEscapesByte();
         $ignores = array();
         $identifiers = $this->_otherIdentifierQuoting();
         if (!empty($this->identifier_quoting['start'])) {
@@ -2620,15 +2783,18 @@ class MDB2_Driver_Common
         $result = '';
         $length = strlen($query);
         $i = 0;
+        // the position after the last multibyte character outside literals
+        $after_multibyte = -1;
         while ($i < $length) {
             // a $ inside an identifier (e.g. foo$tag$) does not start a literal
             if ($dollar && $query[$i] === '$'
-                && (0 === $i || !preg_match('/[A-Za-z0-9_$\x80-\xff]/', $query[$i - 1]))
+                && (0 === $i || ($i !== $after_multibyte
+                    && !preg_match('/[A-Za-z0-9_$\x80-\xff]/', $query[$i - 1])))
                 && preg_match('/\G\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/', $query, $match, 0, $i)
             ) {
                 // the literal ends with the same $tag$, there are no escapes
                 $start = $i;
-                $end = strpos($query, $match[0], $i + strlen($match[0]));
+                $end = $this->_findDelimiter($query, $match[0], $i + strlen($match[0]), $multibyte);
                 $i = (false === $end) ? $length : $end + strlen($match[0]);
                 $result.= $this->_blankSpan($i - $start, "'", "'");
                 continue;
@@ -2638,8 +2804,15 @@ class MDB2_Driver_Common
                 $start = $i;
                 // the literal ends with the character that started it
                 for (++$i; $i < $length; ++$i) {
-                    if ($backslash && $query[$i] === '\\') {
+                    $char_length = $this->_charLength($query, $i, $multibyte);
+                    if ($char_length > 1) {
+                        $i+= $char_length - 1;
+                    } elseif ($backslash && $query[$i] === '\\') {
                         ++$i;
+                        // the escaped character can be a multibyte one
+                        if ($i < $length && !$escapes_byte) {
+                            $i+= $this->_charLength($query, $i, $multibyte) - 1;
+                        }
                     } elseif ($query[$i] === $quote) {
                         if ($i + 1 < $length && $query[$i + 1] === $quote) {
                             ++$i;
@@ -2659,7 +2832,7 @@ class MDB2_Driver_Common
                 }
                 $end = $i + $start_length;
                 do {
-                    $end = strpos($query, $ignore['end'], $end);
+                    $end = $this->_findDelimiter($query, $ignore['end'], $end, $multibyte);
                     if (false === $end) {
                         $end = $length;
                         break;
@@ -2678,8 +2851,15 @@ class MDB2_Driver_Common
                 $i = $end;
                 continue 2;
             }
-            $result.= $query[$i];
-            ++$i;
+            $char_length = $this->_charLength($query, $i, $multibyte);
+            if ($char_length > 1) {
+                $result.= str_repeat("\x80", $char_length);
+                $i+= $char_length;
+                $after_multibyte = $i;
+            } else {
+                $result.= $query[$i];
+                ++$i;
+            }
         }
         return $result;
     }
@@ -2771,12 +2951,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, true, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, true, $limit, $offset);
 
         $result = $this->_doQuery($query, true, $connection, $this->database_name);
         if (MDB2::isError($result)) {
@@ -2808,12 +2989,13 @@ class MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
-        $query = $this->_modifyQuery($query, false, $limit, $offset);
-
+        // connect first, _modifyQuery() reads the query in the character
+        // set of the connection
         $connection = $this->getConnection();
         if (MDB2::isError($connection)) {
             return $connection;
         }
+        $query = $this->_modifyQuery($query, false, $limit, $offset);
 
         $result = $this->_doQuery($query, false, $connection, $this->database_name);
         if (MDB2::isError($result)) {

@@ -765,7 +765,10 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
         $offset = $this->offset;
         $limit = $this->limit;
         $this->offset = $this->limit = 0;
+        // read the query in the character set of the DBA connection
+        $this->scan_connection = $connection;
         $query = $this->_modifyQuery($query, $is_manip, $limit, $offset);
+        $this->scan_connection = null;
 
         $result = $this->_doQuery($query, $is_manip, $connection, $this->database_name);
         if (!MDB2::isError($result)) {
@@ -913,11 +916,49 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
      */
     function _backslashEscapesInStrings()
     {
-        $connection = $this->getConnection();
-        if (MDB2::isError($connection)) {
+        $connection = $this->_scanConnection();
+        if (null === $connection) {
             return true;
         }
         return @mysqli_real_escape_string($connection, '\\') === '\\\\';
+    }
+
+    // }}}
+    // {{{ _connectionCharset()
+
+    /**
+     * The character set the connection sends the queries in
+     *
+     * mysqli_real_escape_string() escapes the strings in this character set.
+     *
+     * @return string|null
+     * @access protected
+     */
+    function _connectionCharset()
+    {
+        $connection = $this->_scanConnection();
+        if (null === $connection) {
+            return null;
+        }
+        $charset = @mysqli_character_set_name($connection);
+        return is_string($charset) ? $charset : null;
+    }
+
+    // }}}
+    // {{{ _backslashEscapesByte()
+
+    /**
+     * Whether a backslash in a string literal escapes the next byte rather
+     * than the next character, when that is a multibyte character
+     *
+     * The MySQL parser skips one byte after a backslash.
+     *
+     * @return bool
+     * @access protected
+     */
+    function _backslashEscapesByte()
+    {
+        return true;
     }
 
     // }}}
