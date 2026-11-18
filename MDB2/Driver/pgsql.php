@@ -809,6 +809,11 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     /**
      * Changes a manip query string for various DBMS specific reasons
      *
+     * The WHERE clause is looked for in the query with its string literals,
+     * delimited identifiers and comments blanked out, and outside of
+     * parentheses, so a WHERE in a value or in a subquery is not mistaken
+     * for the clause of the query.
+     *
      * @param string $query  query to modify
      * @param integer $limit  limit the number of rows
      * @return string modified query
@@ -816,22 +821,39 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
      */
     function _modifyManipQuery($query, $limit)
     {
-        $pos = strpos(strtolower($query), 'where');
-        $where = $pos ? substr($query, $pos) : '';
-
-        $manip_clause = '(\bDELETE\b\s+(?:\*\s+)?\bFROM\b|\bUPDATE\b)';
-        $from_clause  = '([\w\.]+)';
-        $where_clause = '(?:(.*)\bWHERE\b\s+(.*))|(.*)';
-        $pattern = '/^'. $manip_clause . '\s+' . $from_clause .'(?:\s)*(?:'. $where_clause .')?$/i';
-        $matches = preg_match($pattern, $query, $match);
-        if ($matches) {
-            $manip = $match[1];
-            $from  = $match[2];
-            $what  = (count($matches) == 6) ? $match[5] : $match[3];
-            return $manip.' '.$from.' '.$what.' WHERE ctid=(SELECT ctid FROM '.$from.' '.$where.' LIMIT '.$limit.')';
+        $masked = $this->_removeLiteralsAndComments($query);
+        $pattern = '/^\s*(?:DELETE\s+(?:\*\s+)?FROM|UPDATE)\s+([\w\.]+)/i';
+        if (!preg_match($pattern, $masked, $match)) {
+            //return error?
+            return $query;
         }
-        //return error?
-        return $query;
+        $from = $match[1];
+        $start = strlen($match[0]);
+
+        $where = strlen($query);
+        $depth = 0;
+        preg_match_all('/\(|\)|(?<![\w$\x80-\xff])WHERE(?![\w$\x80-\xff])/i',
+            $masked, $tokens, PREG_OFFSET_CAPTURE, $start);
+        foreach ($tokens[0] as $token) {
+            if ($token[0] === '(') {
+                ++$depth;
+            } elseif ($token[0] === ')') {
+                --$depth;
+            } elseif (0 === $depth) {
+                $where = $token[1];
+                break;
+            }
+        }
+
+        // the positions in $masked are the same as in $query
+        $manip = substr($query, 0, $where);
+        $condition = (string)substr($query, $where);
+        // a ctid is only unique within one table, and a query on a parent
+        // table also reaches the rows of its child tables
+        // the new lines end a -- comment at the end of the query (when it
+        // has no WHERE clause) and at the end of the condition
+        return $manip."\nWHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM ".$from.' '.$condition
+            ."\nLIMIT ".(int)$limit.')';
     }
 
     // }}}

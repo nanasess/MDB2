@@ -225,6 +225,103 @@ class QueryTest extends TestCase
         $this->assertNotError($this->db->rollback());
     }
 
+    /**
+     * setLimit() with UPDATE / DELETE failed on pgsql (#19).
+     *
+     * @dataProvider manipLimitProvider
+     */
+    public function testSetLimitWithManipQuery($query, $remaining, $updated, $keeps_first)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(2, $this->assertNotError($this->db->exec($query)));
+        $this->assertSame($remaining, (int) $this->db->queryOne('SELECT COUNT(*) FROM mdb2_users'));
+        $this->assertSame($updated, (int) $this->db->queryOne("SELECT COUNT(*) FROM mdb2_users WHERE note = 'x'"));
+        if ($keeps_first) {
+            // the row outside of the condition is neither deleted nor updated
+            $this->assertSame(
+                $this->getSampleUser(1)['note'],
+                $this->db->queryOne('SELECT note FROM mdb2_users WHERE id = 1')
+            );
+        }
+    }
+
+    public function manipLimitProvider()
+    {
+        return array(
+            'delete without where' => array('DELETE FROM mdb2_users', 3, 0, false),
+            'delete with where' => array('DELETE FROM mdb2_users WHERE id >= 2', 3, 0, true),
+            'update without where' => array("UPDATE mdb2_users SET note = 'x'", 5, 2, false),
+            'update with where' => array("UPDATE mdb2_users SET note = 'x' WHERE id >= 2", 5, 2, true),
+            'multiple lines' => array("UPDATE mdb2_users\nSET note = 'x'\nWHERE id >= 2", 5, 2, true),
+            'where in subquery' => array("UPDATE mdb2_users SET note = (SELECT 'x' WHERE true) WHERE id >= 2", 5, 2, true),
+            'line comment at the end' => array('DELETE FROM mdb2_users WHERE id >= 2 -- comment', 3, 0, true),
+            'line comment without where' => array('DELETE FROM mdb2_users -- comment', 3, 0, false),
+            'update with line comment without where' => array("UPDATE mdb2_users SET note = 'x' -- comment", 5, 2, false),
+        );
+    }
+
+    /**
+     * A ctid is only unique within one table, so rows of another child table
+     * with the same ctid were also deleted (#19).
+     */
+    public function testSetLimitWithManipQueryOnInheritedTables()
+    {
+        $this->requireDriver('pgsql');
+        $this->assertNotError($this->db->exec('DROP TABLE IF EXISTS mdb2_parent_test CASCADE'));
+        $this->assertNotError($this->db->exec('CREATE TABLE mdb2_parent_test (id INTEGER NOT NULL, kind TEXT)'));
+        try {
+            foreach (array('a', 'b') as $kind) {
+                $this->assertNotError($this->db->exec(
+                    'CREATE TABLE mdb2_child_'.$kind.'_test () INHERITS (mdb2_parent_test)'
+                ));
+            }
+            $this->assertNotError($this->db->exec("INSERT INTO mdb2_child_a_test VALUES (1, 'a'), (2, 'a'), (3, 'a')"));
+            $this->assertNotError($this->db->exec("INSERT INTO mdb2_child_b_test VALUES (4, 'b'), (5, 'b'), (6, 'b')"));
+
+            $this->assertNotError($this->db->setLimit(2));
+            $this->assertSame(2, $this->assertNotError($this->db->exec(
+                "DELETE FROM mdb2_parent_test WHERE kind = 'a'"
+            )));
+            $this->assertSame(
+                array(4, 5, 6),
+                $this->db->queryCol("SELECT id FROM mdb2_parent_test WHERE kind = 'b' ORDER BY id", 'integer')
+            );
+            $this->assertSame(1, (int) $this->db->queryOne("SELECT COUNT(*) FROM mdb2_parent_test WHERE kind = 'a'"));
+        } finally {
+            $this->assertNotError($this->db->exec('DROP TABLE mdb2_parent_test CASCADE'));
+        }
+    }
+
+    /**
+     * A WHERE in a value or a comment was taken as the WHERE clause, so the
+     * rest of the value became part of the condition (#19).
+     *
+     * @dataProvider whereInLiteralProvider
+     */
+    public function testSetLimitWithManipQueryIgnoresWhereInLiteral($note, $comment)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(1, $this->assertNotError($this->db->exec(
+            'UPDATE mdb2_users SET note = '.$this->db->quote($note, 'text').$comment.' WHERE id = 1'
+        )));
+        $this->assertSame(array(1), $this->db->queryCol(
+            "SELECT id FROM mdb2_users WHERE note NOT LIKE 'note%' ORDER BY id", 'integer'
+        ));
+    }
+
+    public function whereInLiteralProvider()
+    {
+        return array(
+            'string literal' => array('x where true) --', ''),
+            'string literal with quote' => array("x' WHERE true) --", ''),
+            'block comment' => array('x', ' /* where true) -- */'),
+        );
+    }
+
     public function testSetLimitIgnoresLimitInDollarQuotedString()
     {
         $this->requireDriver('pgsql');
