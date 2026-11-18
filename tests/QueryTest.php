@@ -257,6 +257,8 @@ class QueryTest extends TestCase
             'multiple lines' => array("UPDATE mdb2_users\nSET note = 'x'\nWHERE id >= 2", 5, 2, true),
             'where in subquery' => array("UPDATE mdb2_users SET note = (SELECT 'x' WHERE true) WHERE id >= 2", 5, 2, true),
             'line comment at the end' => array('DELETE FROM mdb2_users WHERE id >= 2 -- comment', 3, 0, true),
+            'line comment without where' => array('DELETE FROM mdb2_users -- comment', 3, 0, false),
+            'update with line comment without where' => array("UPDATE mdb2_users SET note = 'x' -- comment", 5, 2, false),
         );
     }
 

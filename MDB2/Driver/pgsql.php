@@ -850,8 +850,9 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         $condition = (string)substr($query, $where);
         // a ctid is only unique within one table, and a query on a parent
         // table also reaches the rows of its child tables
-        // the new line ends a -- comment at the end of the condition
-        return $manip.' WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM '.$from.' '.$condition
+        // the new lines end a -- comment at the end of the query (when it
+        // has no WHERE clause) and at the end of the condition
+        return $manip."\nWHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM ".$from.' '.$condition
             ."\nLIMIT ".(int)$limit.')';
     }
 
