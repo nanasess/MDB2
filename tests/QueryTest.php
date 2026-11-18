@@ -175,6 +175,56 @@ class QueryTest extends TestCase
         );
     }
 
+    public function testSetLimitKeepsExistingLimitClauseAfterIdentifierWithDollarSign()
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertCount(3, $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users AS foo$tag$ ORDER BY id LIMIT 3'
+        )));
+    }
+
+    /**
+     * @dataProvider trailingClauseInLiteralProvider
+     */
+    public function testSetLimitWithTrailingClauseInLiteral($value)
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertSame(1, $this->db->exec(
+            'UPDATE mdb2_users SET name = '.$this->db->quote($value, 'text').' WHERE id = 1'
+        ));
+        $this->assertNotError($this->db->setLimit(2));
+        // the literal ends the query, so the clause in it is at the end
+        $ids = $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users WHERE name <> "'.$value.'"', 'integer'
+        ));
+        $this->assertCount(2, $ids);
+        $this->assertNotContains(1, $ids);
+    }
+
+    public function trailingClauseInLiteralProvider()
+    {
+        return array(
+            'into outfile' => array(' INTO OUTFILE LIMIT 1'),
+            'for update' => array('x FOR UPDATE'),
+            'lock in share mode' => array('x LOCK IN SHARE MODE'),
+        );
+    }
+
+    public function testSetLimitWithTrailingClause()
+    {
+        $this->requireDriver('mysqli');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->beginTransaction());
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(array(1, 2), $this->assertNotError($this->db->queryCol(
+            'SELECT id FROM mdb2_users ORDER BY id FOR UPDATE', 'integer'
+        )));
+        $this->assertNotError($this->db->rollback());
+    }
+
     public function testSetLimitIgnoresLimitInDollarQuotedString()
     {
         $this->requireDriver('pgsql');

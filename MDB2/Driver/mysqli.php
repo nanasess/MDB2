@@ -954,15 +954,19 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
             // LIMIT doesn't always come last in the query
             // @see http://dev.mysql.com/doc/refman/5.0/en/select.html
             $after = '';
-            if (preg_match('/(\s+INTO\s+(?:OUT|DUMP)FILE\s.*)$/ims', $query, $matches)) {
-                $after = $matches[0];
-                $query = preg_replace('/(\s+INTO\s+(?:OUT|DUMP)FILE\s.*)$/ims', '', $query);
-            } elseif (preg_match('/(\s+FOR\s+UPDATE\s*)$/i', $query, $matches)) {
-               $after = $matches[0];
-               $query = preg_replace('/(\s+FOR\s+UPDATE\s*)$/im', '', $query);
-            } elseif (preg_match('/(\s+LOCK\s+IN\s+SHARE\s+MODE\s*)$/im', $query, $matches)) {
-               $after = $matches[0];
-               $query = preg_replace('/(\s+LOCK\s+IN\s+SHARE\s+MODE\s*)$/im', '', $query);
+            // look for the clauses outside literals and comments
+            $blanked = $this->_removeLiteralsAndComments($query);
+            $patterns = array(
+                '/\s+INTO\s+(?:OUT|DUMP)FILE\s.*$/is',
+                '/\s+FOR\s+UPDATE\s*$/i',
+                '/\s+LOCK\s+IN\s+SHARE\s+MODE\s*$/i',
+            );
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $blanked, $matches, PREG_OFFSET_CAPTURE)) {
+                    $after = substr($query, $matches[0][1]);
+                    $query = substr($query, 0, $matches[0][1]);
+                    break;
+                }
             }
 
             if ($is_manip) {

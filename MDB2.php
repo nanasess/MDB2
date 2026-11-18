@@ -2584,15 +2584,19 @@ class MDB2_Driver_Common
     // {{{ function _removeLiteralsAndComments($query)
 
     /**
-     * Empties string literals and delimited identifiers and removes comments,
-     * so the structure of a query can be inspected without being misled by
-     * the values in it
+     * Blanks out string literals, delimited identifiers and comments, so the
+     * structure of a query can be inspected without being misled by the
+     * values in it
+     *
+     * The result has the same length as the query, so a position found in it
+     * is also the position in the query.
      *
      * @param   string  query
      *
-     * @return  string  the query with '' for each string literal, an empty
-     *                  delimited identifier for each delimited identifier and
-     *                  a space for each comment
+     * @return  string  the query with spaces in place of the contents of
+     *                  string literals (kept between '') and delimited
+     *                  identifiers (kept between their delimiters), and in
+     *                  place of comments
      *
      * @access  protected
      */
@@ -2610,24 +2614,28 @@ class MDB2_Driver_Common
             $ignores[] = $identifier + array('replace' => null);
         }
         foreach ($this->sql_comments as $comment) {
-            $ignores[] = $comment + array('replace' => ' ');
+            $ignores[] = $comment + array('replace' => true);
         }
 
         $result = '';
         $length = strlen($query);
         $i = 0;
         while ($i < $length) {
+            // a $ inside an identifier (e.g. foo$tag$) does not start a literal
             if ($dollar && $query[$i] === '$'
+                && (0 === $i || !preg_match('/[A-Za-z0-9_$\x80-\xff]/', $query[$i - 1]))
                 && preg_match('/\G\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/', $query, $match, 0, $i)
             ) {
                 // the literal ends with the same $tag$, there are no escapes
+                $start = $i;
                 $end = strpos($query, $match[0], $i + strlen($match[0]));
                 $i = (false === $end) ? $length : $end + strlen($match[0]);
-                $result.= "''";
+                $result.= $this->_blankSpan($i - $start, "'", "'");
                 continue;
             }
             $quote = $query[$i];
             if (in_array($quote, $quote_chars, true)) {
+                $start = $i;
                 // the literal ends with the character that started it
                 for (++$i; $i < $length; ++$i) {
                     if ($backslash && $query[$i] === '\\') {
@@ -2640,8 +2648,8 @@ class MDB2_Driver_Common
                         }
                     }
                 }
-                ++$i;
-                $result.= $quote.$quote;
+                $i = min($i + 1, $length);
+                $result.= $this->_blankSpan($i - $start, $quote, $quote);
                 continue;
             }
             foreach ($ignores as $ignore) {
@@ -2665,7 +2673,8 @@ class MDB2_Driver_Common
                     }
                 } while ($escaped);
                 $result.= (null === $ignore['replace'])
-                    ? $ignore['start'].$ignore['end'] : $ignore['replace'];
+                    ? $this->_blankSpan($end - $i, $ignore['start'], $ignore['end'])
+                    : $this->_blankSpan($end - $i);
                 $i = $end;
                 continue 2;
             }
@@ -2673,6 +2682,28 @@ class MDB2_Driver_Common
             ++$i;
         }
         return $result;
+    }
+
+    // }}}
+    // {{{ function _blankSpan($length, $open = '', $close = '')
+
+    /**
+     * Returns $length characters: $open, spaces and $close
+     *
+     * @param   int     length of the result
+     * @param   string  characters to keep at the start
+     * @param   string  characters to keep at the end
+     *
+     * @return  string
+     *
+     * @access  protected
+     */
+    function _blankSpan($length, $open = '', $close = '')
+    {
+        if ($length < strlen($open) + strlen($close)) {
+            return str_repeat(' ', $length);
+        }
+        return $open.str_repeat(' ', $length - strlen($open) - strlen($close)).$close;
     }
 
     // }}}
