@@ -827,8 +827,8 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
         if ($matches) {
             $manip = $match[1];
             $from  = $match[2];
-            $what  = (count($matches) == 6) ? $match[5] : $match[3];
-            return $manip.' '.$from.' '.$what.' WHERE ctid=(SELECT ctid FROM '.$from.' '.$where.' LIMIT '.$limit.')';
+            $what  = (count($match) == 6) ? $match[5] : $match[3];
+            return $manip.' '.$from.' '.$what.' WHERE ctid IN (SELECT ctid FROM '.$from.' '.$where.' LIMIT '.$limit.')';
         }
         //return error?
         return $query;

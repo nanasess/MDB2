@@ -225,6 +225,31 @@ class QueryTest extends TestCase
         $this->assertNotError($this->db->rollback());
     }
 
+    /**
+     * setLimit() with UPDATE / DELETE failed on pgsql (#19).
+     *
+     * @dataProvider manipLimitProvider
+     */
+    public function testSetLimitWithManipQuery($query, $remaining, $updated)
+    {
+        $this->requireDriver('pgsql');
+        $this->populateUsers(5);
+        $this->assertNotError($this->db->setLimit(2));
+        $this->assertSame(2, $this->assertNotError($this->db->exec($query)));
+        $this->assertSame($remaining, (int) $this->db->queryOne('SELECT COUNT(*) FROM mdb2_users'));
+        $this->assertSame($updated, (int) $this->db->queryOne("SELECT COUNT(*) FROM mdb2_users WHERE note = 'x'"));
+    }
+
+    public function manipLimitProvider()
+    {
+        return array(
+            'delete without where' => array('DELETE FROM mdb2_users', 3, 0),
+            'delete with where' => array('DELETE FROM mdb2_users WHERE id >= 2', 3, 0),
+            'update without where' => array("UPDATE mdb2_users SET note = 'x'", 5, 2),
+            'update with where' => array("UPDATE mdb2_users SET note = 'x' WHERE id >= 2", 5, 2),
+        );
+    }
+
     public function testSetLimitIgnoresLimitInDollarQuotedString()
     {
         $this->requireDriver('pgsql');
