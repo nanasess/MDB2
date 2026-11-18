@@ -773,6 +773,28 @@ class MDB2_Driver_pgsql extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _connectionCharset()
+
+    /**
+     * The character set the connection sends the queries in
+     *
+     * pg_escape_string() escapes the strings in this character set, and the
+     * server converts the query from it before parsing it.
+     *
+     * @return string|null
+     * @access protected
+     */
+    function _connectionCharset()
+    {
+        $connection = $this->getConnection();
+        if (MDB2::isError($connection)) {
+            return null;
+        }
+        $charset = @pg_client_encoding($connection);
+        return is_string($charset) ? $charset : null;
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**

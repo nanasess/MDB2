@@ -921,6 +921,44 @@ class MDB2_Driver_mysqli extends MDB2_Driver_Common
     }
 
     // }}}
+    // {{{ _connectionCharset()
+
+    /**
+     * The character set the connection sends the queries in
+     *
+     * mysqli_real_escape_string() escapes the strings in this character set.
+     *
+     * @return string|null
+     * @access protected
+     */
+    function _connectionCharset()
+    {
+        $connection = $this->getConnection();
+        if (MDB2::isError($connection)) {
+            return null;
+        }
+        $charset = @mysqli_character_set_name($connection);
+        return is_string($charset) ? $charset : null;
+    }
+
+    // }}}
+    // {{{ _backslashEscapesByte()
+
+    /**
+     * Whether a backslash in a string literal escapes the next byte rather
+     * than the next character, when that is a multibyte character
+     *
+     * The MySQL parser skips one byte after a backslash.
+     *
+     * @return bool
+     * @access protected
+     */
+    function _backslashEscapesByte()
+    {
+        return true;
+    }
+
+    // }}}
     // {{{ _modifyQuery()
 
     /**
